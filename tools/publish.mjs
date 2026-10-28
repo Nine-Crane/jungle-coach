@@ -11,6 +11,7 @@
 // 本机不装 git 也能发布，但代价是需要一个有效 token；脚本不会打印 token 本身。
 
 import { readFileSync, existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import https from 'node:https';
@@ -169,6 +170,28 @@ if (repo.status === 404) {
 
 /* ---------- 步骤 3：提交文件 ---------- */
 console.log('[3/5] 提交文件…');
+
+/*
+ * 自动构建标记：把 index.html 的 sha256 前 10 位写进 <meta name="build">。
+ *
+ * 为什么必须自动生成：GitHub Pages 走 CDN，更新后旧内容还会被缓存一段时间。
+ * 验证"发布成功"的唯一可靠办法是比对构建标记 —— 但手工维护标记极易出错：
+ * 如果这次改动忘了改标记（比如只改了注释），标记不变，验证就会把
+ * "CDN 还在发旧版本"误判成"发布成功"。（这个坑在本项目里真实踩过一次。）
+ * 用内容哈希自动生成后，只要内容有任何变化，标记必然变化。
+ */
+const localIndex = readFileSync(join(ROOT, 'index.html'), 'utf8');
+const contentHash = createHash('sha256').update(localIndex, 'utf8').digest('hex').slice(0, 10);
+const BUILD = 'jc-' + contentHash;
+const stampedIndex = localIndex.replace(
+  /<meta\s+name="build"\s+content="[^"]*"/,
+  `<meta name="build" content="${BUILD}"`
+);
+if (stampedIndex === localIndex && !/<meta\s+name="build"/.test(localIndex)) {
+  throw new Error('index.html 缺少 <meta name="build"> 占位，无法注入构建标记');
+}
+console.log('      构建标记（由内容哈希生成）:', BUILD);
+
 let uploaded = 0;
 for (const rel of FILES) {
   const abs = join(ROOT, rel);
@@ -176,18 +199,22 @@ for (const rel of FILES) {
     console.log('      跳过（不存在）:', rel);
     continue;
   }
-  const content = Buffer.from(readFileSync(abs, 'utf8'), 'utf8').toString('base64');
+  // index.html 用注入了构建标记的版本，其余文件原样上传
+  const source = rel === 'index.html'
+    ? stampedIndex
+    : readFileSync(abs, 'utf8');
+  const content = Buffer.from(source, 'utf8').toString('base64');
   const path = `/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(rel).replace(/%2F/g, '/')}`;
 
   // 已存在则带上 sha 以覆盖
   const existing = await api('GET', `${path}?ref=${BRANCH}`);
-  const body = { message: `chore: publish ${rel}`, content, branch: BRANCH };
+  const body = { message: `chore: publish ${rel} (${BUILD})`, content, branch: BRANCH };
   if (existing.status === 200 && existing.body && existing.body.sha) body.sha = existing.body.sha;
 
   const put = await api('PUT', path, body);
   if (put.status === 200 || put.status === 201) {
     uploaded++;
-    console.log('      ✓', rel, '(' + Buffer.byteLength(content, 'base64') + ' bytes)');
+    console.log('      ✓', rel, '(' + Buffer.byteLength(source, 'utf8') + ' bytes)');
   } else {
     throw new Error('提交失败 ' + rel + ': ' + put.status + ' ' + JSON.stringify(put.body));
   }
@@ -226,16 +253,10 @@ console.log('[5/5] 等待 Pages 构建并验证:', URL);
  * 验证的关键是比对「构建标记」，而不是「页面能打开」。
  * GitHub Pages 走 CDN，更新后旧版本还会被缓存一段时间；
  * 如果只检查 title 之类的通用字样，新旧版本都能通过，验证等于没做。
- * 所以从本地 index.html 读出 <meta name="build">，要求线上与之完全一致。
+ * 这里的 BUILD 是步骤 3 里用内容哈希算出来的，所以只要内容变过，
+ * 标记一定变，验证就不可能把旧版本误判成成功。
  */
-const localHtml = readFileSync(join(ROOT, 'index.html'), 'utf8');
-const buildMatch = localHtml.match(/<meta\s+name="build"\s+content="([^"]+)"/);
-const BUILD = buildMatch ? buildMatch[1] : null;
-if (!BUILD) {
-  console.log('      ⚠ 本地 index.html 没有 <meta name="build">，只能做通用检查');
-} else {
-  console.log('      本次构建标记:', BUILD);
-}
+console.log('      本次构建标记:', BUILD);
 
 let live = false;
 let sawOldVersion = false;
@@ -243,15 +264,14 @@ for (let i = 1; i <= 40; i++) {
   // 带随机 query 绕过 CDN 缓存，否则可能一直拿到旧版本
   const r = await httpGet(URL + '?cachebust=' + Date.now());
   if (r.status === 200) {
-    if (!BUILD) {
-      if (r.body.includes('打野教练')) { live = true; console.log(`      第 ${i} 次检查: 200 OK ✓`); break; }
-    } else if (r.body.includes(`content="${BUILD}"`)) {
+    if (r.body.includes(`content="${BUILD}"`)) {
       live = true;
       console.log(`      第 ${i} 次检查: 200 OK，构建标记匹配 ✓`);
       break;
     } else {
+      const seen = (r.body.match(/name="build"\s+content="([^"]+)"/) || [])[1] || '(无标记)';
       sawOldVersion = true;
-      console.log(`      第 ${i} 次检查: 200 但仍是旧版本（CDN 缓存中），继续等待…`);
+      console.log(`      第 ${i} 次检查: 200 但线上是 ${seen}（CDN 缓存中），继续等待…`);
     }
   } else {
     console.log(`      第 ${i} 次检查: HTTP ${r.status}，继续等待…`);
