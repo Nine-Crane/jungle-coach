@@ -83,11 +83,6 @@ body{
 .act .txt{flex:1;min-width:0}
 .act .name{font-weight:700;font-size:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .act .hint{font-size:11.5px;color:var(--dim2);margin-top:2px;line-height:1.45}
-.act .ev{
-  flex:0 0 auto;text-align:right;font-variant-numeric:tabular-nums;
-}
-.act .ev b{display:block;font-size:14px;color:var(--gold);font-weight:800}
-.act .ev i{font-style:normal;font-size:10px;color:var(--dim2)}
 .badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid}
 .badge.danger{color:#ff9d8a;border-color:#7a3524;background:#2c1511}
 .badge.good{color:#8ef0bb;border-color:#256b45;background:#0e2620}
@@ -165,7 +160,6 @@ body{
 .tips{display:flex;flex-direction:column;gap:8px}
 .tip{background:#101c2b;border:1px solid #23405e;border-radius:10px;padding:11px 14px;font-size:13px}
 .tip b{color:var(--gold)}
-.tip .ev{color:var(--dim2);font-size:11.5px;margin-top:3px}
 .timeline{display:flex;flex-direction:column;gap:6px;max-height:230px;overflow-y:auto}
 .tl{display:flex;gap:10px;font-size:12px;padding:7px 10px;background:#0e151d;border-radius:8px;border-left:2px solid #2b3d4f}
 .tl.bad{border-left-color:#7a3524}
@@ -205,14 +199,18 @@ a{color:var(--blue)}
     <div>
       <div class="panel">
         <h2>战场地图 <span class="tag" id="mapTag">— 未开始 —</span></h2>
-        <canvas id="map" width="840" height="622"></canvas>
+        <canvas id="map" width="1000" height="740"></canvas>
         <div class="legend">
-          <span><i class="sw" style="background:#3ddc84"></i>己方野区</span>
-          <span><i class="sw" style="background:#f3644a"></i>敌方野区</span>
-          <span><i class="sw" style="background:#f3c34a"></i>可刷 / 可拿</span>
-          <span><i class="sw" style="background:#455a70"></i>冷却中</span>
-          <span><i class="sw" style="background:#4aa8f3"></i>你</span>
-          <span><i class="sw" style="background:#f3644a;border-radius:50%"></i>敌方打野（最后出现位置）</span>
+          <span><i class="sw" style="background:#3ddc84"></i>己方半场 / 己方塔</span>
+          <span><i class="sw" style="background:#f3644a"></i>敌方半场 / 敌方塔</span>
+          <span><i class="sw" style="background:#4aa8f3"></i>河道</span>
+          <span><i class="sw" style="background:#ff7a4a;border-radius:50%"></i>红BUFF</span>
+          <span><i class="sw" style="background:#5ab0ff;border-radius:50%"></i>蓝BUFF</span>
+          <span><i class="sw" style="background:#f3c34a;border-radius:50%"></i>小野 / 已刷新</span>
+          <span><i class="sw" style="background:#1b2735;border:1px dashed #3d5570"></i>冷却中</span>
+          <span><i class="sw" style="background:#f3c34a"></i>已刷新资源</span>
+          <span><i class="sw" style="background:#4aa8f3;border-radius:50%"></i>你</span>
+          <span><i class="sw" style="background:#f3644a;border-radius:50%"></i>敌方打野（最后已知位置）</span>
         </div>
       </div>
 
@@ -270,58 +268,98 @@ var ENEMY_BASE_GROWTH = 230;   // 敌方经济基础增速（每回合）
 var LANES = ['top','mid','bot'];
 var LANE_CN = {top:'上路', mid:'中路', bot:'下路'};
 
+/*
+ * 野怪种类与刷新时间（参照王者峡谷 5v5 标准结构）：
+ *   红蓝 BUFF —— 90 秒刷新   → 6 回合
+ *   普通小野   —— 80 秒刷新   → 5 回合
+ *   河道之灵   —— 60 秒刷新   → 4 回合
+ * 每边 5 个：红、蓝、2 个小野、1 个河道之灵，全图共 10 个。
+ * 数值是为决策训练调过的近似值，非官方精确数据。
+ * 单组收益比早期版本高，因为野怪组数减少了（从每边 8 个降到 5 个），
+ * 要保持单回合刷野收益大致相当。
+ */
 var CAMP_TYPES = {
-  red:    {name:'红BUFF',     gold:150, cd:6, xp:150, big:true},
-  blue:   {name:'蓝BUFF',     gold:150, cd:6, xp:150, big:true},
-  pigs:   {name:'三猪',       gold:120, cd:5, xp:120},
-  wolves: {name:'狼群',       gold:120, cd:5, xp:120},
-  bird:   {name:'小鸟',       gold:80,  cd:4, xp:70},
-  stone:  {name:'石头人',     gold:110, cd:5, xp:100},
-  toad:   {name:'河道之灵',   gold:130, cd:5, xp:115},
-  frog:   {name:'魔沼蛙',     gold:110, cd:5, xp:100}
+  red:   {name:'红BUFF',   short:'红', gold:200, cd:6, big:true,  color:'#ff7a4a'},
+  blue:  {name:'蓝BUFF',   short:'蓝', gold:200, cd:6, big:true,  color:'#5ab0ff'},
+  smallA:{name:'小野A',    short:'野', gold:170, cd:5, big:false, color:'#f3c34a'},
+  smallB:{name:'小野B',    short:'野', gold:170, cd:5, big:false, color:'#f3c34a'},
+  river: {name:'河道之灵', short:'河', gold:180, cd:4, big:false, color:'#4aa8f3'}
 };
 
-// 野怪点位（逻辑坐标 1000x740）
+/*
+ * 野怪点位（逻辑坐标 1000x740）。
+ * 拓扑：我方泉水在左下、敌方泉水在右上；中路是主对角线，河道是与它垂直的反对角线带。
+ * 每方 5 个：红 BUFF、蓝 BUFF、两个普通小野、一个河道之灵，全图共 10 个。
+ * 红色野怪放在「下路侧」半区，蓝色野怪放在「上路侧」半区——
+ * 这是我按常见打野路线做的排布；若与你常用的地图左右相反，改这里的 x/y 即可。
+ */
 var CAMPS = [
-  {id:'our_red',   side:'our',    type:'red',    x:642, y:598},
-  {id:'our_blue',  side:'our',    type:'blue',   x:838, y:82 },
-  {id:'our_pigs',  side:'our',    type:'pigs',   x:508, y:648},
-  {id:'our_wolves',side:'our',    type:'wolves', x:832, y:192},
-  {id:'our_bird',  side:'our',    type:'bird',   x:568, y:430},
-  {id:'our_stone', side:'our',    type:'stone',  x:888, y:268},
-  {id:'our_toad',  side:'our',    type:'toad',   x:388, y:672},
-  {id:'en_red',    side:'enemy',  type:'red',    x:358, y:142},
-  {id:'en_blue',   side:'enemy',  type:'blue',   x:162, y:658},
-  {id:'en_pigs',   side:'enemy',  type:'pigs',   x:492, y:92 },
-  {id:'en_wolves', side:'enemy',  type:'wolves', x:168, y:548},
-  {id:'en_bird',   side:'enemy',  type:'bird',   x:432, y:310},
-  {id:'en_stone',  side:'enemy',  type:'stone',  x:112, y:472},
-  {id:'en_toad',   side:'enemy',  type:'toad',   x:612, y:68 },
-  {id:'en_frog',   side:'enemy',  type:'frog',   x:308, y:322}
+  // —— 己方野区（左下） ——
+  {id:'our_blue',   side:'our',   type:'blue',   x:248, y:398, label:'蓝'},
+  {id:'our_red',    side:'our',   type:'red',    x:398, y:546, label:'红'},
+  {id:'our_smallA', side:'our',   type:'smallA', x:198, y:296, label:'野'},
+  {id:'our_smallB', side:'our',   type:'smallB', x:468, y:588, label:'野'},
+  {id:'our_river',  side:'our',   type:'river',  x:318, y:358, label:'河'},
+  // —— 敌方野区（右上，关于地图中心 180° 对称） ——
+  {id:'en_blue',    side:'enemy', type:'blue',   x:752, y:342, label:'蓝'},
+  {id:'en_red',     side:'enemy', type:'red',    x:602, y:194, label:'红'},
+  {id:'en_smallA',  side:'enemy', type:'smallA', x:802, y:444, label:'野'},
+  {id:'en_smallB',  side:'enemy', type:'smallB', x:532, y:152, label:'野'},
+  {id:'en_river',   side:'enemy', type:'river',  x:682, y:382, label:'河'}
 ];
 
-// 中立资源
+/*
+ * 中立资源（参照王者荣耀）：全图只有两个河道资源点
+ *   暴君 —— 下路侧河道，2:00 刷新，此后每 3 分钟一次，给全队经济与经验
+ *   主宰 —— 上路侧河道，8:00 刷新，此后每 4 分钟一次，给全队增益并推进兵线
+ * 10:00 之后两者升级为「暗影暴君 / 暗影主宰」，收益更高（见 SHADOW_TURN）。
+ * 第一次刷新时间用「回合」表示：1 回合 = 15 秒，所以 2:00 = 第 8 回合。
+ */
 var OBJS = [
-  {id:'tyrant_s', name:'小暴君', type:'dragon', slot:'south', gold:160, obj:1, x:158, y:628},
-  {id:'tyrant_b', name:'大暴君', type:'baron',  slot:'north', gold:280, obj:2, x:842, y:112}
+  {id:'tyrant',   name:'暴君', type:'tyrant',    slot:'south', gold:220, obj:1,
+   firstTurn:8,  period:12, x:620, y:464},
+  {id:'overlord', name:'主宰', type:'overlord',  slot:'north', gold:340, obj:2,
+   firstTurn:32, period:16, x:380, y:275}
 ];
+var SHADOW_TURN = 40;        // 10:00 起进入暗影阶段
+var SHADOW_MULT = 1.35;      // 暗影版本的收益倍率
 
-var TOWERS = [
-  // 敌方（上路下路对称）
-  {x:290,y:96, t:'enemy'}, {x:520,y:96, t:'enemy'},
-  {x:104,y:290,t:'enemy'}, {x:104,y:520,t:'enemy'},
-  {x:290,y:290,t:'enemy'}, {x:430,y:290,t:'enemy'},
-  // 己方
-  {x:710,y:644,t:'our'},  {x:480,y:644,t:'our'},
-  {x:896,y:450,t:'our'},  {x:896,y:220,t:'our'},
-  {x:710,y:450,t:'our'},  {x:570,y:450,t:'our'}
-];
+/*
+ * 地图坐标体系（逻辑坐标 1000 x 740，渲染时等比缩放到 canvas）
+ *
+ * 采用王者峡谷的标准拓扑：我方泉水在左下、敌方泉水在右上。
+ *   上路 = 从左下沿左边上行，再沿上边右行到敌方泉水
+ *   下路 = 从左下沿下边右行，再沿右边上行到敌方泉水
+ *   中路 = 从左下直插右上的主对角线
+ *   河道 = 与中路垂直的反对角线带，从左上传到右下
+ *   主宰 = 河道的左上半段（上路侧）
+ *   暴君 = 河道的右下半段（下路侧）
+ * 这个拓扑和真实对局一致：中路最短、暴君更靠近下路、主宰更靠近上路。
+ */
+var BASE_OUR  = {x:120, y:632};
+var BASE_EN   = {x:880, y:108};
 
 var POLY = {
-  top:  [[760,600],[640,600],[420,600],[300,470],[110,470],[110,104]],
-  mid:  [[700,520],[560,470],[428,388],[380,310],[240,308],[110,240]],
-  bot:  [[620,700],[400,700],[240,690],[150,500],[150,300],[110,240]]
+  top: [[120,632],[104,470],[118,300],[196,162],[372,96],[600,80],[800,96],[880,108]],
+  mid: [[164,596],[330,470],[500,370],[670,270],[838,142]],
+  bot: [[120,632],[280,664],[480,672],[662,658],[812,600],[876,450],[882,286],[880,108]]
 };
+
+// 河道：与中路垂直的对角线带，从左上到右下
+var RIVER_FROM = {x:168, y:108};
+var RIVER_TO   = {x:832, y:632};
+
+var TOWERS = [
+  // 上路塔（两侧各两座，由外到内）
+  {x:150,y:392,t:'our'},   {x:246,y:132,t:'enemy'},
+  {x:452,y:88, t:'enemy'}, {x:206,y:250,t:'our'},
+  // 中路塔
+  {x:246,y:522,t:'our'},   {x:404,y:438,t:'our'},
+  {x:596,y:302,t:'enemy'}, {x:754,y:228,t:'enemy'},
+  // 下路塔
+  {x:300,y:666,t:'our'},   {x:500,y:672,t:'our'},
+  {x:800,y:540,t:'enemy'}, {x:872,y:382,t:'enemy'}
+];
 
 /* ---------------------- 工具箱 ---------------------- */
 function ri(a,b){ return a + Math.floor(Math.random()*(b-a+1)); }
@@ -349,6 +387,9 @@ function newGame(){
     health:1.0,
     // invadeRun: 连续入侵同一片野区的次数。越大 → 对面回防概率越高、收益越低。
     invadeRun:0,
+    // invadeCd: 反野后的"回撤冷却"。反野时你人在敌方深处，
+    // 必须绕路回自家野区，接下来 2 回合不能再入侵。
+    invadeCd:0,
     metrics:{farming:0, gankGood:0, gankBad:0, obj:0, death:0}
   };
 
@@ -358,16 +399,18 @@ function newGame(){
 
   CAMPS.forEach(function(c){ g.camps[c.id] = {up:true, cd:0}; });
 
-  // 中立资源刷新计划：首次约 2 分钟（第 8 回合），之后每 5 回合（75 秒）一次。
-  // 节奏参照真实对局：小龙/暴君争夺是最关键的团队决策点，但不宜过于频繁。
-  var cyc=[[0,'south'],[5,'south'],[10,'north'],[15,'north'],[20,'south'],[25,'north'],[30,'south'],[35,'north'],[40,'south'],[45,'north']];
+  // 中立资源刷新计划：每个资源用自己的 firstTurn / period 生成时间表。
+  //   暴君：第 8 回合（2:00）首刷，之后每 12 回合（3 分钟）
+  //   主宰：第 32 回合（8:00）首刷，之后每 16 回合（4 分钟）
+  // 与王者峡谷的刷新节奏一致：暴君先于主宰出现，且刷新更频繁。
   g.objSchedule = {};
   OBJS.forEach(function(o){
     g.objs[o.id] = {up:false, respawn:0};
-    g.objSchedule[o.id] = cyc.map(function(p){
-      var at = 8 + p[0];
-      return {at:at, slot:p[1], done:false, typed:o.type};
-    });
+    var list = [];
+    for (var at = o.firstTurn; at <= TOTAL_TURN + 2; at += o.period){
+      list.push({at:at, slot:o.slot, done:false, typed:o.type});
+    }
+    g.objSchedule[o.id] = list;
   });
 
   return g;
@@ -447,7 +490,15 @@ function scoreAction(a){
   if (a.type==='GANK'){
     var L = a.lane, lane = G.lanes[L];
     var sc = laneScore(L);
-    var p = clamp(0.50 + sc*0.10 + (power()-enemyPower())*0.16 - (lane.cd>0?(lane.gankSeq>=2?0.22:0.10):0), 0.08, 0.93);
+    /*
+     * 注意 Gank 的成功率公式是「低基础 + 高线权系数」：
+     *   均势路(p≈0.44) 抓了不划算，优势路(p≈0.75) 才是高价值。
+     * 这是刻意设计的"选择性"——如果基础成功率给到 0.5 以上，
+     * 三条路随便抓都赚，Gank 会变成每回合的无脑最优解。
+     * 回归测试证实这是个阈值型动作：只把基础成功率调高一点，
+     * Gank 占比就从 3% 冲到 64%，所以必须靠线权系数制造区分度。
+     */
+    var p = clamp(0.44 + sc*0.15 + (power()-enemyPower())*0.16 - (lane.cd>0?(lane.gankSeq>=2?0.22:0.10):0), 0.06, 0.93);
     /*
      * Gank 的收益结构（这是本游戏最核心的一个模型）：
      *   击杀收益 ≈ 人头金 + 兵线/推进的隐性收益（对面上单少吃一波 = 我们赚）
@@ -456,9 +507,9 @@ function scoreAction(a){
      * okObj 这一项代表"Gank 成功后顺势推线 / 拿视野"的连带收益——
      * 没有它的话，Gank 期望会被"稳定刷野"永远压过，不符合真实打野的取舍。
      */
-    var baseKill = 120 + G.turn*2.6;
-    var okV = Math.round(baseKill + (sc>1?80:0) + (lane.ourT>lane.enT?45:0));
-    var okObj = Math.round(70 + 20*cf);
+    var baseKill = 135 + G.turn*2.8;
+    var okV = Math.round(baseKill + (sc>1?90:0) + (lane.ourT>lane.enT?50:0));
+    var okObj = Math.round(80 + 22*cf);
     var failV = -Math.round(38 + G.turn*1.7);
     // 反蹲
     var cgP = enemyJunglerNear(L);
@@ -519,28 +570,36 @@ function scoreAction(a){
     var eZone = G.enemyJungler.zone;
     var baseRisk = eZone==='spawn' ? 0.26 : eZone==='lane' ? 0.18 : eZone==='our' ? 0.08 : eZone==='river' ? 0.13 : 0.05;
     var openDiscount = campOpen >= 4 ? 0.12 : campOpen >= 2 ? 0.06 : 0.0;
-    var inP = clamp(baseRisk + fatigue*0.16 - (known ? 0.12 : 0) - openDiscount, 0.03, 0.70);
+    var inP = clamp(baseRisk + fatigue*0.20 - (known ? 0.12 : 0) - openDiscount, 0.03, 0.72);
 
     /*
-     * 反野的"交通成本"：这是平衡这个动作最关键的一项。
+     * 反野的"交通成本"是平衡这个动作最关键的一项。
      * 没有它，反野会变成无限提款机 —— 对面野区永远刷着，你可以每回合都进去拿钱，
      * 于是"一直反野"成了数学上的最优解（回归测试里它一度占到 51% 的回合）。
-     * 真实情况是：跨半区移动要时间、要绕视野，连进同一个半区还会撞上回防。
-     * 因此把它建模成随时间递减的时间效率 factor。
+     *
+     * 这里用两层约束，缺一不可：
+     *  A) 疲劳递减：连进同一个半区，收益递减、被抓概率递增（对面会回防）。
+     *  B) 回撤冷却（invadeCd）：反野成功后你人在对面深处，必须绕路回撤，
+     *     接下来 2 个回合无法再进对面野区。
+     * 只做 A 不够 —— 因为疲劳每回合衰减 1，交替"反野/刷野"就能把疲劳压在低位。
+     * 加上 B 之后，入侵的频率被结构性限制住，而不是靠调系数。
      */
-    var travel = clamp(1 - fatigue*0.22, 0.25, 1);
+    var travel = clamp(1 - fatigue*0.28, 0.22, 1);
+    var onCd = (G.invadeCd || 0) > 0;
 
     var steal = Math.round((t2.gold*cf*1.30 + (G.enemyBase-G.gold>800?60:0)) * travel);
     var death = -Math.round(70 + G.turn*3.1);
     var ev2 = steal*(1-inP) + inP*0.55*(steal*0.5) + inP*0.45*death;
+    if (onCd) ev2 *= 0.30;          // 回撤途中再进去，效率极低
     r.ev = ev2;
     // 一次能连偷多组时额外加价（这就是"整片野区都归你"的收益）
-    var multi = campOpen>=3 && fatigue===0;
+    var multi = campOpen>=3 && fatigue===0 && !onCd;
     if (multi){ r.ev += 55; steal += 45; }
     r.risk = inP;
     r.hint = '可偷 '+en.length+' 组野 · ' + (known ? '情报：对面打野刚在别处露面 ✓' : '情报：不确定对面打野位置 ✗')
            + ' · 被抓概率约 '+Math.round(inP*100)+'%'
            + (multi ? ' · 对面野区大片空着' : '')
+           + (onCd ? ' · 刚反野回来，还没绕回自家野区' : '')
            + (fatigue>0 ? ' · 连续入侵第 '+(fatigue+1)+' 次，对面已开始回防' : '');
     if (inP>0.3) r.badges.push(['danger','高风险']);
     if (known) r.badges.push(['good','情报明确']);
@@ -550,11 +609,14 @@ function scoreAction(a){
     r.bad  = '对面打野行踪不明就入侵，等于赌命；连续入侵同一片野区会被回防反抓';
     r.apply = function(){
       /*
-       * 注意：这里成功时"不清零"疲劳值，只 +1；疲劳值每个回合会自然衰减。
-       * 早期版本成功即清零，结果反野可以无限连做（回归测试里占到 51% 的回合）。
-       * 现在改成累积+衰减，连续反野才会真正付出代价，隔几回合再做又划算。
+       * 注意两点（都来自回归测试抓出的漏洞）：
+       *  1) 成功时"不清零"疲劳值，只 +1；疲劳值每回合自然衰减。
+       *     早期版本成功即清零，结果反野可以无限连做（一度占到 51% 的回合）。
+       *  2) 无论成败都设置回撤冷却 invadeCd：你人在敌方深处，
+       *     接下来两回合得先绕回自家野区，不能接着反野。
        */
       G.invadeRun = (G.invadeRun||0) + 1;
+      G.invadeCd = 3;
       var caught = Math.random() < inP;
       var stolen = 0, list = [];
       if (caught){
@@ -641,27 +703,37 @@ function scoreAction(a){
      */
     var stale = clamp((G.turn - G.enemyJungler.lastSeen) / 10, 0, 1);
     var op = clamp(0.86 + (power()-enemyPower())*0.20 - hostile*0.45 - laneBack*0.13 - stale*0.28, 0.15, 0.95);
-    var greed = Math.round(o.gold*cf + (G.turn>30?80:0));
+    // 10:00 之后暴君/主宰升级为暗影版本，收益更高
+    var shadow = G.turn >= SHADOW_TURN;
+    var mult = shadow ? SHADOW_MULT : 1;
+    var greed = Math.round(o.gold*cf*mult + (G.turn>30?80:0));
     // 失败的主要代价是"时间 + 被抢"：掉龙、掉节奏，但通常不会顺手把命也丢了。
     // 因此它的惩罚应当接近"浪费一轮刷野"，而不是等于一次阵亡。
     var lose = -Math.round(45 + G.turn*1.2);
     r.ev = op*greed + (1-op)*lose;
     r.risk = 1-op;
-    r.hint = o.name + ' 已刷新 · obj '+o.obj+' · 成功率约 '+Math.round(op*100)+'%'
+    var dispName = (shadow ? '暗影' : '') + o.name;
+    r.hint = dispName + ' 已刷新 · obj '+o.obj+' · 成功率约 '+Math.round(op*100)+'%'
            + (stale>0.5 ? ' · ⚠ 对面打野已失联 '+(G.turn-G.enemyJungler.lastSeen)+' 回合' : ' · 情报较新');
     if (laneBack>0) r.badges.push(['danger', '有'+laneBack+'路被压']);
     if (hostile>0.25) r.badges.push(['danger','敌方打野在附近']);
     r.badges.push(['obj','团队资源']);
+    if (shadow) r.badges.push(['good','暗影阶段']);
     r.good = '拿龙的前提是「线权 + 对面打野位置明确」。有这两样，龙就是白送的团队经济';
     r.bad  = '线上被压、对面打野行踪不明时硬打龙，是最容易把节奏送出去的选择';
     r.apply = function(){
       if (Math.random() < op){
-        st.up = false; st.respawn = 12;
-        G.objGold += greed; G.objCount += o.obj; G.buffs += o.type==='baron'?2:1; G.metrics.obj++;
-        return {value:greed, head:'拿下 '+o.name, desc:'队友掩护到位，你稳稳收掉 '+o.name+'。全队获得资源增益（obj +'+o.obj+'）。', meter:'good'};
+        st.up = false; st.respawn = o.period;
+        G.objGold += greed; G.objCount += o.obj;
+        // 主宰的增益远强于暴君：给全队推进能力
+        G.buffs += o.type==='overlord' ? 2 : 1;
+        G.metrics.obj++;
+        return {value:greed, head:'拿下 '+dispName,
+          desc:'队友掩护到位，你稳稳收掉 '+dispName+'。全队获得资源增益（obj +'+o.obj+'）。',
+          meter:'good'};
       }
       G.deaths++; G.metrics.death++; G.enemyBase += 100;
-      return {value:lose, head:'打龙被打断', desc:'龙没打完，对面打野带人包过来，你被收掉，龙也丢了。下次先确认对面打野的位置再动。', meter:'bad'};
+      return {value:lose, head:dispName+' 被打断', desc:'资源没打完，对面打野带人包过来，你被收掉，资源也丢了。下次先确认对面打野的位置再动。', meter:'bad'};
     };
     return r;
   }
@@ -725,9 +797,12 @@ function buildActions(){
   // 3. 入侵
   list.push({type:'INVADE', label:'入侵敌方野区'});
 
-  // 4. 拿资源
+  // 4. 拿资源（10:00 后自动显示为「暗影暴君 / 暗影主宰」）
   OBJS.forEach(function(o){
-    if (G.objs[o.id].up) list.push({type:'OBJ', objId:o.id, label:'拿 '+o.name});
+    if (G.objs[o.id].up){
+      var nm = (G.turn >= SHADOW_TURN ? '暗影' : '') + o.name;
+      list.push({type:'OBJ', objId:o.id, label:'拿 '+nm});
+    }
   });
 
   // 5. 守护蹲草（选最危险的一路）
@@ -827,6 +902,8 @@ function takeAction(a){
   if (!(scored.kind === 'INVADE') && G.invadeRun > 0) {
     G.invadeRun = Math.max(0, G.invadeRun - 1);
   }
+  // 回撤冷却每回合 -1（反野当回合就已经设置好，这里只负责递减）
+  if (G.invadeCd > 0) G.invadeCd = Math.max(0, G.invadeCd - 1);
 
   // 更新英雄位置
   if (scored.kind==='FARM' && a.campId){
@@ -939,133 +1016,236 @@ function stat(k,v,cls,unit){
 function renderMap(){
   var cv = byId('map'), ctx = cv.getContext('2d');
   var W = cv.width, H = cv.height;
-  var sx = W/1000, sy = H/740;
+  // 逻辑坐标 1000x740 → canvas 等比映射（canvas 就是 1000x740，所以 sx=sy=1）
+  var sx = W/1000, sy = H/740, MS = Math.min(sx,sy);
   ctx.setTransform(1,0,0,1,0,0);
   ctx.clearRect(0,0,W,H);
 
-  // 背景
-  ctx.fillStyle = '#080c11'; ctx.fillRect(0,0,W,H);
-
+  /* ---------- 绘图小工具 ---------- */
   function P(x,y){ return [x*sx, y*sy]; }
-  function rect(x,y,w,h,fill,stroke){
-    ctx.fillStyle = fill; ctx.fillRect(x*sx,y*sy,w*sx,h*sy);
-    if (stroke){ ctx.strokeStyle = stroke; ctx.lineWidth = 1.4; ctx.strokeRect(x*sx,y*sy,w*sx,h*sy); }
+  function poly(pts, fill, strokeCol, lw){
+    ctx.beginPath();
+    pts.forEach(function(p,i){ var q=P(p[0],p[1]); i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]); });
+    ctx.closePath();
+    if (fill){ ctx.fillStyle = fill; ctx.fill(); }
+    if (strokeCol){ ctx.strokeStyle = strokeCol; ctx.lineWidth = lw||1; ctx.stroke(); }
+  }
+  function path(pts, color, lw, dash){
+    ctx.beginPath();
+    pts.forEach(function(p,i){ var q=P(p[0],p[1]); i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]); });
+    ctx.strokeStyle = color; ctx.lineWidth = lw;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.setLineDash(dash||[]); ctx.stroke(); ctx.setLineDash([]);
+  }
+  function text(t, x, y, color, size, align, weight){
+    ctx.fillStyle = color;
+    ctx.font = (weight||700)+' '+(size||11)+'px "Microsoft YaHei",sans-serif';
+    ctx.textAlign = align||'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(t, x, y);
   }
 
-  // 野区底色
-  rect(400,400,600,340,'rgba(61,220,132,0.055)','rgba(61,220,132,0.20)');
-  rect(0,0,400,400,'rgba(243,100,74,0.055)','rgba(243,100,74,0.20)');
+  // 河道中心线方向与法线（用于画河道带、切分两半地图）
+  var rdx = RIVER_TO.x-RIVER_FROM.x, rdy = RIVER_TO.y-RIVER_FROM.y;
+  var rlen = Math.sqrt(rdx*rdx+rdy*rdy);
+  var ux = rdx/rlen, uy = rdy/rlen;          // 单位方向
+  var nx = -uy, ny = ux;                     // 单位法线
+  function along(x,y,t){ return [x+ux*t, y+uy*t]; }
+  function off(x,y,d){ return [x+nx*d, y+ny*d]; }
 
-  // 河道（对角线带）
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(0*sx, 400*sy); ctx.lineTo(400*sx, 0*sy);
-  ctx.lineTo(640*sx, 0*sy); ctx.lineTo(0*sx, 560*sy);
-  ctx.closePath();
-  ctx.fillStyle = 'rgba(74,168,243,0.06)'; ctx.fill();
-  ctx.strokeStyle = 'rgba(74,168,243,0.16)'; ctx.lineWidth = 1; ctx.stroke();
-  ctx.restore();
+  /* ---------- 1. 底色与两侧野区着色 ---------- */
+  ctx.fillStyle = '#070b10'; ctx.fillRect(0,0,W,H);
 
-  // 草丛
-  [[430,470],[250,330],[560,560],[330,620],[168,240],[600,180]].forEach(function(p){
-    ctx.beginPath();
-    ctx.arc(p[0]*sx, p[1]*sy, 20*Math.min(sx,sy), 0, Math.PI*2);
-    ctx.fillStyle = 'rgba(61,220,132,0.10)'; ctx.fill();
-  });
+  // 河道把地图切成两半：左下是我方半场，右上是我方半场。
+  // 直接按几何求交，避免用矩形近似导致边界错位。
+  var A = RIVER_FROM, B = RIVER_TO;
+  // 河心线与地图边框的交点（用于构造两个多边形）
+  var tTop = (0 - A.y)/uy;                       // 到达 y=0
+  var pTop = along(A.x, A.y, tTop);
+  var tBot = (740 - A.y)/uy;                     // 到达 y=740
+  var pBot = along(A.x, A.y, tBot);
 
-  // 兵线
-  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  // 我方半场（河心线的左下侧）
+  poly([pTop, pBot, [1000,740], [0,740], [0,0]], 'rgba(61,220,132,0.062)', 'rgba(61,220,132,0.22)', 1.5);
+  // 敌方半场（河心线的右上侧）
+  poly([pTop, [1000,0], [1000,740], pBot], 'rgba(243,100,74,0.062)', 'rgba(243,100,74,0.22)', 1.5);
+
+  /* ---------- 2. 网格（每 100 逻辑单位） ---------- */
+  ctx.strokeStyle = 'rgba(90,120,150,0.10)'; ctx.lineWidth = 1;
+  for (var gx=100; gx<1000; gx+=100){
+    var g1=P(gx,0), g2=P(gx,740);
+    ctx.beginPath(); ctx.moveTo(g1[0],g1[1]); ctx.lineTo(g2[0],g2[1]); ctx.stroke();
+  }
+  for (var gy=100; gy<740; gy+=100){
+    var g3=P(0,gy), g4=P(1000,gy);
+    ctx.beginPath(); ctx.moveTo(g3[0],g3[1]); ctx.lineTo(g4[0],g4[1]); ctx.stroke();
+  }
+
+  /* ---------- 3. 河道带 ---------- */
+  var BAND = 56;
+  poly([off(A.x,A.y,-BAND), off(B.x,B.y,-BAND), off(B.x,B.y,BAND), off(A.x,A.y,BAND)],
+       'rgba(74,168,243,0.13)', 'rgba(74,168,243,0.34)', 1.4);
+  var rmid = [(A.x+B.x)/2, (A.y+B.y)/2];
+  text('河 道', rmid[0]*sx, rmid[1]*sy-30*MS, 'rgba(120,190,245,0.75)', 12*MS);
+
+  /* ---------- 4. 三条路 ---------- */
+  // 先画宽底衬，再画亮线，保证在任何底色上都看得清
   ['top','mid','bot'].forEach(function(L){
-    ctx.beginPath();
-    POLY[L].forEach(function(p,i){ var q=P(p[0],p[1]); i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]); });
-    ctx.strokeStyle = 'rgba(180,205,230,0.20)'; ctx.lineWidth = 9; ctx.stroke();
-    ctx.strokeStyle = 'rgba(200,225,245,0.42)'; ctx.lineWidth = 2; ctx.stroke();
+    path(POLY[L], 'rgba(120,145,170,0.35)', 11*MS);
+    path(POLY[L], 'rgba(205,225,245,0.55)', 2.4*MS);
   });
+  // 路名：贴在各自路段旁边
+  text('上 路', 100*sx+42*MS, 300*sy, 'rgba(196,220,244,0.95)', 14*MS, 'left');
+  text('中 路', 500*sx, 352*sy-16*MS, 'rgba(196,220,244,0.95)', 14*MS);
+  text('下 路', 500*sx, 672*sy+22*MS, 'rgba(196,220,244,0.95)', 14*MS);
 
-  // 塔
+  /* ---------- 5. 防御塔（小方块，弱化处理避免抢视觉） ---------- */
   TOWERS.forEach(function(t){
-    var q = P(t.x,t.y), s = 5.2*Math.min(sx,sy);
-    ctx.fillStyle = t.t==='our' ? '#3ddc84' : '#f3644a';
-    ctx.fillRect(q[0]-s/2, q[1]-s/2, s, s);
-    ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.lineWidth = 1; ctx.strokeRect(q[0]-s/2, q[1]-s/2, s, s);
+    var q = P(t.x,t.y), w = 9*MS;
+    var isOur = t.t==='our';
+    ctx.fillStyle = isOur ? 'rgba(61,220,132,0.85)' : 'rgba(243,100,74,0.85)';
+    ctx.fillRect(q[0]-w/2, q[1]-w/2, w, w);
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 1;
+    ctx.strokeRect(q[0]-w/2, q[1]-w/2, w, w);
   });
 
-  // 泉水
-  [[892,388,'#3ddc84','我方'], [108,92,'#f3644a','敌方']].forEach(function(b){
-    var q = P(b[0],b[1]);
-    ctx.beginPath(); ctx.arc(q[0],q[1], 22*Math.min(sx,sy), 0, Math.PI*2);
-    ctx.fillStyle = b[2]+'22'; ctx.fill();
-    ctx.strokeStyle = b[2]+'99'; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = b[2]; ctx.font = '600 11px "Microsoft YaHei",sans-serif';
-    ctx.textAlign='center'; ctx.fillText(b[3], q[0], q[1]+34*Math.min(sx,sy));
-  });
-
-  // 野怪点
-  CAMPS.forEach(function(c){
-    var q = P(c.x,c.y), s = G.camps[c.id];
-    var R = (CAMP_TYPES[c.type].big?9:7)*Math.min(sx,sy);
-    var avail = s.up;
-    var col = avail ? (c.side==='our' ? '#f3c34a' : '#e08a5a') : '#33475b';
+  /* ---------- 6. 泉水 ---------- */
+  [[BASE_EN.x, BASE_EN.y, '#f3644a', '敌方泉水'],
+   [BASE_OUR.x, BASE_OUR.y, '#3ddc84', '我方泉水']].forEach(function(b){
+    var q = P(b[0],b[1]), R = 26*MS;
     ctx.beginPath(); ctx.arc(q[0],q[1], R, 0, Math.PI*2);
-    ctx.fillStyle = col + (avail?'':'cc'); ctx.fill();
-    if (CAMP_TYPES[c.type].big){
-      ctx.strokeStyle = avail ? '#fff' : '#4b6178'; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.fillStyle = b[2]+'26'; ctx.fill();
+    ctx.strokeStyle = b[2]; ctx.lineWidth = 2.4; ctx.stroke();
+    text(b[3], q[0], q[1] + (b[3]==='我方泉水' ? R+16*MS : -(R+16*MS)), b[2], 12.5*MS);
+  });
+
+  /* ---------- 7. 野怪 ---------- */
+  // 己方野区统计，用于右侧情报板与高亮当前可刷目标
+  var availOur = CAMPS.filter(function(c){ return c.side==='our' && G.camps[c.id].up; });
+  // 标记"当前最该去刷的那组"（BUFF 优先，其次按离英雄距离）
+  var farmTarget = null;
+  if (availOur.length){
+    var buffs = availOur.filter(function(c){ return CAMP_TYPES[c.type].big; });
+    var pool = buffs.length ? buffs : availOur;
+    pool = pool.slice().sort(function(a,b){
+      return Math.hypot(a.x-G.hero.x,a.y-G.hero.y) - Math.hypot(b.x-G.hero.x,b.y-G.hero.y);
+    });
+    farmTarget = pool[0].id;
+  }
+
+  CAMPS.forEach(function(c){
+    var q = P(c.x,c.y), st = G.camps[c.id], T = CAMP_TYPES[c.type];
+    var R = (T.big ? 15 : 12.5) * MS;
+    var avail = st.up;
+    var isOur = c.side==='our';
+
+    // 外圈光晕：可刷的己方野怪给明显高亮
+    if (avail && isOur){
+      ctx.beginPath(); ctx.arc(q[0],q[1], R+7*MS, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(243,195,74,0.16)'; ctx.fill();
     }
-    if (!avail && s.cd>0){
-      ctx.fillStyle = '#93a9bd'; ctx.font='600 9px system-ui'; ctx.textAlign='center';
-      ctx.fillText(s.cd, q[0], q[1]-R-3);
+    // 本体
+    ctx.beginPath(); ctx.arc(q[0],q[1], R, 0, Math.PI*2);
+    if (avail){
+      ctx.fillStyle = T.color;
+      ctx.fill();
+      ctx.strokeStyle = isOur ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.45)';
+      ctx.lineWidth = T.big ? 2.6 : 1.8; ctx.stroke();
+    } else {
+      ctx.fillStyle = '#1b2735'; ctx.fill();
+      ctx.strokeStyle = '#3d5570';
+      ctx.lineWidth = 1.6; ctx.setLineDash([3,2]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    // 圈内的短名（红/蓝/野/河）
+    text(c.label, q[0], q[1], avail ? '#0a1017' : '#7d93a8', (T.big?12:10.5)*MS);
+
+    // 圈下：状态或倒计时
+    var below = q[1] + R + 11*MS;
+    if (avail){
+      text(isOur ? T.name : T.name, q[0], below, isOur ? '#ffd77a' : '#e0a882', 10.5*MS);
+      if (c.id === farmTarget){
+        text('◀ 现在刷这组', q[0], below + 12*MS, '#3ddc84', 10.5*MS);
+      }
+    } else {
+      text(st.cd>0 ? ('冷却 '+st.cd+' 回合') : '未刷新', q[0], below, '#6d8399', 10*MS);
+    }
+    // 敌方野怪额外标注归属，避免和我方混淆
+    if (!isOur && avail){
+      text('敌', q[0]-R-11*MS, q[1], 'rgba(243,100,74,0.9)', 10*MS);
     }
   });
 
-  // 中立资源
+  /* ---------- 8. 中立资源（暴君 / 主宰） ---------- */
   OBJS.forEach(function(o){
     var q = P(o.x,o.y), st = G.objs[o.id];
-    var R = 15*Math.min(sx,sy);
+    var shadow = G.turn >= SHADOW_TURN;
+    var nm = (shadow ? '暗影' : '') + o.name;
+    var R = 20*MS;
+
+    // 龙坑
+    ctx.beginPath(); ctx.arc(q[0],q[1], R+8*MS, 0, Math.PI*2);
+    ctx.fillStyle = st.up ? 'rgba(243,195,74,0.13)' : 'rgba(60,80,100,0.16)';
+    ctx.fill();
+
     ctx.beginPath(); ctx.arc(q[0],q[1], R, 0, Math.PI*2);
     if (st.up){
-      ctx.fillStyle = o.type==='baron' ? 'rgba(243,195,74,.30)' : 'rgba(74,168,243,.26)';
+      ctx.fillStyle = o.type==='overlord' ? 'rgba(243,195,74,0.42)' : 'rgba(74,168,243,0.38)';
       ctx.fill();
-      ctx.strokeStyle = o.type==='baron' ? '#f3c34a' : '#4aa8f3'; ctx.lineWidth = 2.4; ctx.stroke();
+      ctx.strokeStyle = o.type==='overlord' ? '#f3c34a' : '#4aa8f3';
+      ctx.lineWidth = 3; ctx.stroke();
     } else {
-      ctx.strokeStyle = '#33475b'; ctx.lineWidth = 2; ctx.setLineDash([4,3]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.strokeStyle = '#41607d'; ctx.lineWidth = 2.2;
+      ctx.setLineDash([5,4]); ctx.stroke(); ctx.setLineDash([]);
     }
-    ctx.fillStyle = st.up ? (o.type==='baron'?'#f3c34a':'#4aa8f3') : '#5d7590';
-    ctx.font = '700 10px "Microsoft YaHei",sans-serif'; ctx.textAlign='center';
-    ctx.fillText(o.name, q[0], q[1]+R+11);
-    if (!st.up && st.respawn>0){
-      ctx.fillStyle='#7d93a8'; ctx.font='600 9px system-ui';
-      ctx.fillText(st.respawn+'回合', q[0], q[1]-R-4);
+    text(nm, q[0], q[1], st.up ? '#ffffff' : '#7d93a8', 12.5*MS);
+
+    // 状态 / 倒计时
+    var below2 = q[1] + R + 13*MS;
+    if (st.up){
+      text('obj '+o.obj+' · 现在可拿', q[0], below2, '#ffd77a', 11*MS);
+    } else {
+      var next = null;
+      G.objSchedule[o.id].forEach(function(ev){ if (!ev.done && (next===null || ev.at<next)) next = ev.at; });
+      var tLeft = next!==null ? Math.max(0, next - G.turn) : null;
+      text(tLeft!==null ? ('第 '+next+' 回合刷新 · 还 '+tLeft+' 回合') : '本局已结束',
+           q[0], below2, '#6d8399', 10.5*MS);
     }
   });
 
-  // 敌方打野（最后出现位置）
-  if (G.enemyJungler && G.enemyJungler.zone!=='unknown'){
+  /* ---------- 9. 敌方打野（最后已知位置） ---------- */
+  if (G.enemyJungler && G.enemyJungler.zone !== 'unknown'){
     var e = G.enemyJungler, q = P(e.x,e.y);
     var fresh = (G.turn - e.lastSeen) <= 3;
-    ctx.beginPath(); ctx.arc(q[0],q[1], 8*Math.min(sx,sy), 0, Math.PI*2);
-    ctx.fillStyle = fresh ? 'rgba(243,100,74,.85)' : 'rgba(243,100,74,.32)';
+    var zoneCN = {spawn:'自家野区', lane:LANE_CN[e.lane]||'边路', our:'我方野区', river:'河道', dead:'读秒中'}[e.zone] || '未知';
+
+    ctx.beginPath(); ctx.arc(q[0],q[1], 12*MS, 0, Math.PI*2);
+    ctx.fillStyle = fresh ? 'rgba(243,100,74,0.9)' : 'rgba(243,100,74,0.3)';
     ctx.fill();
-    ctx.strokeStyle = '#f3644a'; ctx.lineWidth = 1.8; ctx.stroke();
-    ctx.fillStyle = fresh ? '#ffb4a3' : '#8a5a52';
-    ctx.font = '600 9.5px "Microsoft YaHei",sans-serif'; ctx.textAlign='center';
-    ctx.fillText(fresh ? '打野' : '打野?', q[0], q[1]-12*Math.min(sx,sy));
+    ctx.strokeStyle = fresh ? '#ff9d8a' : '#8a5a52';
+    ctx.lineWidth = 2; ctx.stroke();
+    if (!fresh){ ctx.setLineDash([3,2]); ctx.stroke(); ctx.setLineDash([]); }
+    text('敌', q[0], q[1], fresh ? '#fff' : '#c98d83', 11*MS);
+    text(fresh ? ('打野 · '+zoneCN) : ('打野? · '+zoneCN+' ('+(G.turn-e.lastSeen)+'回合前)'),
+         q[0], q[1]-20*MS, fresh ? '#ffb4a3' : '#9a6f66', 10.5*MS);
   }
 
-  // 玩家
+  /* ---------- 10. 玩家位置 ---------- */
   var hp = P(G.hero.x, G.hero.y);
-  ctx.beginPath(); ctx.arc(hp[0],hp[1], 10*Math.min(sx,sy), 0, Math.PI*2);
+  ctx.beginPath(); ctx.arc(hp[0],hp[1], 26*MS, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(74,168,243,0.18)'; ctx.fill();
+  ctx.beginPath(); ctx.arc(hp[0],hp[1], 13*MS, 0, Math.PI*2);
   ctx.fillStyle = '#4aa8f3'; ctx.fill();
-  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
-  ctx.fillStyle = '#dceaf7'; ctx.font = '700 10px "Microsoft YaHei",sans-serif'; ctx.textAlign='center';
-  ctx.fillText('你', hp[0], hp[1]-16*Math.min(sx,sy));
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.4; ctx.stroke();
+  text('你', hp[0], hp[1], '#04121f', 11*MS);
+  text('你在此', hp[0], hp[1]+24*MS, '#8fd0ff', 10.5*MS);
 
-  // 图例：路名
-  ctx.fillStyle = 'rgba(160,185,210,.75)'; ctx.font = '600 11px "Microsoft YaHei",sans-serif';
-  var tl = P(110,104); ctx.textAlign='left';  ctx.fillText('上路', tl[0]+12, tl[1]-6);
-  var ml = P(380,310); ctx.fillText('中路', ml[0]-6, ml[1]-16);
-  var bl = P(620,700); ctx.textAlign='right'; ctx.fillText('下路', bl[0]-14, bl[1]+18);
+  /* ---------- 11. 半场标注 ---------- */
+  text('我方野区', 620*sx, 470*sy, 'rgba(61,220,132,0.5)', 16*MS);
+  text('敌方野区', 380*sx, 250*sy, 'rgba(243,100,74,0.5)', 16*MS);
 
-  byId('mapTag').textContent = G.over ? '对局结束' : ('第 '+Math.min(G.turn,TOTAL_TURN)+' / '+TOTAL_TURN+' 回合 · '+timeStr());
+  byId('mapTag').textContent = G.over
+    ? '对局结束'
+    : ('第 '+Math.min(G.turn,TOTAL_TURN)+' / '+TOTAL_TURN+' 回合 · '+timeStr()
+       + ' · 野怪全图 '+CAMPS.length+' 个，中立资源 '+OBJS.length+' 个');
 }
 
 function renderActions(){
@@ -1084,10 +1264,11 @@ function renderActions(){
     var b = document.createElement('button');
     b.className = 'act';
     var badges = (s.badges||[]).map(function(x){ return '<span class="badge '+x[0]+'">'+esc(x[1])+'</span>'; }).join('');
+    // 刻意不在按钮上显示「期望金」：训练的目的是让玩家自己判断，
+    // 而不是照着引擎算好的数字点。结算后才给对照反馈。
     b.innerHTML = '<span class="key">'+idx+'</span>'
       + '<span class="txt"><span class="name">'+esc(a.label)+badges+'</span>'
-      + '<span class="hint">'+esc(s.hint)+'</span></span>'
-      + '<span class="ev"><b>'+(s.ev>=0?'+':'')+Math.round(s.ev)+'</b><i>期望金</i></span>';
+      + '<span class="hint">'+esc(s.hint)+'</span></span>';
     b.onclick = function(){ playerAct(a); };
     box.appendChild(b);
     idx++;
@@ -1098,7 +1279,9 @@ function renderActions(){
 function renderFeedback(){
   var box = byId('feedback');
   var lo = G.lastOutcome;
-  if (!lo){ box.innerHTML = '<p class="mini" style="margin:0">选择一个动作开始你的第一回合。上方按钮右侧的数字是引擎算出的<b style="color:#f3c34a">期望收益</b>（按概率加权后的金币收益），先试着按它来判断。</p>'; return; }
+  if (!lo){ box.innerHTML = '<p class="mini" style="margin:0">选择一个动作开始你的第一回合。'
+    + '按钮上只给<b style="color:#f3c34a">局势信息</b>（成功率、风险、线权、情报），不给收益数字——'
+    + '自己判断该做什么，选完之后才对照引擎的看法。</p>'; return; }
 
   var o = lo.out;
   var cls = o.meter==='good' ? 'good' : o.meter==='bad' ? 'bad' : '';
@@ -1108,18 +1291,17 @@ function renderFeedback(){
      + '<span class="delta '+deltaCls+'">'+(lo.delta>=0?'+':'')+lo.delta+' 金</span></div>';
   h += '<div class="desc">'+esc(o.desc)+'</div>';
 
-  // 最优解对照
-  var ratio = lo.ideal>0 ? lo.delta/lo.ideal : 1;
+  // 最优解对照（结算后才揭示，避免"照着数字点"）
   if (lo.regret > 25){
     h += '<div class="coach bad"><div class="ttl">⚠ 这回合不是最优解</div>'
       +  '你选了 <b>'+esc(lo.action.label)+'</b>，拿到 '+lo.delta+' 金。'
-      +  '引擎认为更好的选择是 <b>'+esc(lo.best.action.label)+'</b>（期望 +'+lo.ideal+'）。'
+      +  '引擎认为更好的选择是 <b>'+esc(lo.best.action.label)+'</b>。'
       +  '本回合的机会成本：<b>'+lo.regret+' 金</b>。'
       + (lo.scored.bad ? '<br>原因：'+esc(lo.scored.bad) : '')
       + '</div>';
   } else {
     h += '<div class="coach good"><div class="ttl">✓ 决策正确</div>'
-      +  '这是当前局势下期望最高的选择之一。'
+      +  '这是当前局势下最好的选择之一。'
       + (lo.scored.good ? esc(lo.scored.good) : '保持这个判断节奏。')
       + '</div>';
   }
@@ -1348,19 +1530,20 @@ function showHelp(){
    + '<li><b>刷野</b> — 吃己方已刷新的野怪。保底收益，但机会成本可能很高。</li>'
    + '<li><b>Gank 上/中/下</b> — 成功率取决于：该路<b>线权</b>、双方战力差、你之前抓这条路的次数。连续抓同一条路会被警觉反蹲。</li>'
    + '<li><b>入侵敌方野区</b> — 收益高、风险高。关键在于<b>是否知道对面打野的位置</b>。</li>'
-   + '<li><b>拿小/大暴君</b> — 团队资源，额外计入 obj 评分。前提是线权 + 对面打野不在附近。</li>'
+   + '<li><b>拿暴君 / 主宰</b> — 团队资源，额外计入 obj 评分。前提是线权 + 对面打野不在附近。</li>'
    + '<li><b>蹲草守护</b> — 防对面 Gank，救下队友能拿助攻和线权。</li>'
    + '<li><b>回城补给</b> — 恢复战力，但浪费时间。</li></ol>'
-   + '<h4>怎么看懂数字</h4>'
-   + '<p>每个按钮右边的 <b>+128</b> 这类数字是引擎算出的<b>期望收益</b>（按成功概率加权后的金币）。它已经包含了成功率、风险、反蹲概率。'
-   + '你的目标不是每次挑最大的数字，而是理解<b>为什么</b>这个数字大——比如为什么「Gank 上路」只有 +40，而「刷红BUFF」有 +150。</p>'
+   + '<h4>怎么判断</h4>'
+   + '<p>按钮上只给<b>局势信息</b>——成功率、风险提示、线权、对面打野的情报。<b>不显示收益数字</b>：'
+   + '你需要自己权衡「去抓这条线」和「先吃完这组野」哪个更值。选完之后，引擎才会告诉你它的判断和机会成本。</p>'
+   + '<p>这比照着数字点更能训练真实的判断力——排位里没人会告诉你每个选择的期望值。</p>'
    + '<h4>评分</h4>'
    + '<p>局末的<b>决策质量 %</b> = 你的实际累计收益 ÷ 每回合最优解收益之和。90% 以上说明你几乎每回合都做出了最优决策。'
    + '<b>机会成本</b>是这个差距换算成金币的值。</p>'
    + '<h4>快捷键</h4><p>数字键 <b>1～7</b> 可以直接选择对应动作。</p>'
    + '<h4>建议的练习方式</h4><ol>'
-   + '<li>第一局先别看期望值，凭直觉打，记录自己的决策习惯。</li>'
-   + '<li>第二局开始，每回合先自己想「最优是什么」，再看引擎的期望值对照。</li>'
+   + '<li>第一局凭直觉打，看复盘里「最亏的 5 个决策」，找出自己的决策习惯。</li>'
+   + '<li>之后每回合先在心里想「现在最该做什么」，选完再对照引擎的看法，重点看<b>你想错了什么</b>。</li>'
    + '<li>连续 5 局把决策质量稳定在 85% 以上，再回去打排位。</li></ol>'
    + '</div><div class="foot"><button class="btn primary" id="btnClose2">知道了</button></div>';
   byId('mask').classList.add('on');
@@ -1405,6 +1588,19 @@ if (typeof __DEV__ === 'undefined' || __DEV__) {
     newGame: function () { return newGame(); },
     setGame: function (g) { G = g; playHistory = []; },
     getGame: function () { return G; },
+    // 渲染整个界面。供 tools/check.mjs 做「渲染冒烟测试」：
+    // 在没有浏览器的情况下也能确认每个回合的地图状态都能画出来而不报错。
+    render: function () { renderAll(); },
+    renderMapOnly: function () { renderMap(); },
+    // 跳过若干回合，用于把地图推进到特定阶段（暗影阶段、资源刷新点等）
+    warpTo: function (turn) {
+      while (G.turn < turn && !G.over) {
+        var s = buildActions().filter(function (x) { return !x.disabled; })
+          .map(function (x) { var r = scoreAction(x); r.action = x; return r; });
+        if (!s.length) break;
+        takeAction(s[0].action);
+      }
+    },
     buildScored: function () {
       return buildActions()
         .filter(function (x) { return !x.disabled; })
