@@ -1439,7 +1439,7 @@ function showReport(){
   if (G.gankTry>=4 && G.gankOk/G.gankTry >= 0.6) goods.push('Gank 成功率 <b>'+Math.round(G.gankOk/G.gankTry*100)+'%</b>，进场时机把握得好。');
   if (G.deaths <= 2) goods.push('整局只有 <b>'+G.deaths+'</b> 次阵亡，说明你没有盲目入侵和硬抓。');
 
-  // 归类统计：按动作类型归类（p.picked 形如 "GANK 上路" / "OBJ 小暴君" / "FARM"）。
+  // 归类统计：按动作类型归类（p.picked 形如 "GANK 上路" / "OBJ 暴君" / "FARM"）。
   // 早先这里用 pickedLabel.split(' ')[0] 归类，对"蹲草守护 上路"这类无空格标签会拆错，
   // 导致报告里永远看不到「蹲草」这一类，现在统一改用类型字段。
   var kindStat = {};
@@ -1632,7 +1632,7 @@ if (typeof __DEV__ === 'undefined' || __DEV__) {
       var kindCount = {};
       playHistory.forEach(function (p) {
         // 统一用动作类型（FARM/GANK/...）作为 key。
-        // p.picked 形如 "GANK 上路"、"FARM"、"OBJ 小暴君"，取首词即类型。
+        // p.picked 形如 "GANK 上路"、"FARM"、"OBJ 暴君"，取首词即类型。
         var k = (p.picked || 'OTHER').split(' ')[0];
         kindCount[k] = (kindCount[k] || 0) + 1;
       });
