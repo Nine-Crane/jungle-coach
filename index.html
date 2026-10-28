@@ -1,0 +1,1456 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>打野教练 · 决策训练场</title>
+<meta name="description" content="用回合制决策模拟器训练王者荣耀打野的 Gank / 刷野 / 入侵 / 拿龙 判断力，赛后给决策复盘报告。">
+<style>
+:root{
+  --bg:#0b1015; --bg2:#111922; --bg3:#16202b; --line:#243444;
+  --fg:#e8f0f7; --dim:#9db2c6; --dim2:#7d93a8; --gold:#f3c34a;
+  --blue:#4aa8f3; --red:#f3644a; --green:#3ddc84;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:radial-gradient(1100px 620px at 78% -8%,#15263a 0%,transparent 60%),var(--bg);
+  color:var(--fg); font:14px/1.6 "Microsoft YaHei","PingFang SC","Noto Sans SC",system-ui,sans-serif;
+  min-height:100vh; padding:18px 16px 60px;
+}
+.wrap{max-width:1240px;margin:0 auto}
+
+/* ---------- 顶栏 ---------- */
+.topbar{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-bottom:14px}
+.logo{font-size:19px;font-weight:800;letter-spacing:.5px;display:flex;align-items:center;gap:9px}
+.logo .dot{width:10px;height:10px;border-radius:50%;background:var(--gold);box-shadow:0 0 12px var(--gold)}
+.logo small{font-weight:400;font-size:12px;color:var(--dim2)}
+.spacer{flex:1}
+.btn{
+  background:var(--bg3);color:var(--fg);border:1px solid var(--line);border-radius:9px;
+  padding:8px 15px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s;
+  font-family:inherit;white-space:nowrap;
+}
+.btn:hover{border-color:#3b5673;background:#1b2836;transform:translateY(-1px)}
+.btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.btn.primary{background:linear-gradient(180deg,#2f6fb5,#1e4f87);border-color:#3f7fc4;color:#fff}
+.btn.primary:hover{background:linear-gradient(180deg,#3a80cc,#245c9a)}
+.btn.ghost{background:transparent}
+
+/* ---------- 状态条 ---------- */
+.hud{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:9px;margin-bottom:14px;
+}
+.stat{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.stat .k{font-size:11px;color:var(--dim2);letter-spacing:.5px}
+.stat .v{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:1px}
+.stat .v small{font-size:11px;font-weight:500;color:var(--dim2)}
+.v.gold{color:var(--gold)} .v.blue{color:var(--blue)} .v.green{color:var(--green)} .v.red{color:var(--red)}
+.leadbar{height:5px;border-radius:3px;background:#22303e;margin-top:5px;overflow:hidden;position:relative}
+.leadbar i{display:block;height:100%;background:linear-gradient(90deg,#2f6fb5,#3ddc84);transition:width .35s}
+
+/* ---------- 主区 ---------- */
+.main{display:grid;grid-template-columns:minmax(0,1.34fr) minmax(320px,1fr);gap:14px;align-items:start}
+@media(max-width:1010px){.main{grid-template-columns:1fr}}
+.panel{background:var(--bg2);border:1px solid var(--line);border-radius:13px;overflow:hidden}
+.panel > h2{
+  margin:0;padding:10px 14px;font-size:12px;font-weight:700;letter-spacing:1px;color:var(--dim2);
+  background:#0e151d;border-bottom:1px solid var(--line);text-transform:uppercase;
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+}
+.panel > h2 .tag{font-size:11px;letter-spacing:0;color:var(--dim2);font-weight:500;text-transform:none}
+.panel .body{padding:13px}
+
+/* ---------- 地图 ---------- */
+#map{display:block;width:100%;height:auto;border-radius:0 0 12px 12px;background:#080c11;cursor:crosshair}
+.legend{display:flex;flex-wrap:wrap;gap:11px;padding:9px 13px;border-top:1px solid var(--line);font-size:11px;color:var(--dim2)}
+.legend span{display:flex;align-items:center;gap:5px}
+.sw{width:9px;height:9px;border-radius:2px;display:inline-block}
+
+/* ---------- 动作区 ---------- */
+.actions{display:flex;flex-direction:column;gap:8px}
+.act{
+  display:flex;align-items:center;gap:11px;width:100%;text-align:left;cursor:pointer;
+  background:var(--bg3);border:1px solid var(--line);border-left:3px solid #39506a;
+  border-radius:10px;padding:10px 12px;color:var(--fg);font-family:inherit;transition:.13s;
+}
+.act:hover{border-color:#3d5a7a;border-left-color:var(--gold);background:#1c2836;transform:translateX(3px)}
+.act:disabled{opacity:.35;cursor:not-allowed;transform:none}
+.act .key{
+  flex:0 0 22px;height:22px;border-radius:6px;background:#0e151d;border:1px solid var(--line);
+  font-size:11px;font-weight:700;color:var(--dim2);display:grid;place-items:center;
+}
+.act .txt{flex:1;min-width:0}
+.act .name{font-weight:700;font-size:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.act .hint{font-size:11.5px;color:var(--dim2);margin-top:2px;line-height:1.45}
+.act .ev{
+  flex:0 0 auto;text-align:right;font-variant-numeric:tabular-nums;
+}
+.act .ev b{display:block;font-size:14px;color:var(--gold);font-weight:800}
+.act .ev i{font-style:normal;font-size:10px;color:var(--dim2)}
+.badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid}
+.badge.danger{color:#ff9d8a;border-color:#7a3524;background:#2c1511}
+.badge.good{color:#8ef0bb;border-color:#256b45;background:#0e2620}
+.badge.obj{color:#ffdf9a;border-color:#7a5b1c;background:#2b2110}
+.badge.info{color:#a9cdf5;border-color:#2c5580;background:#101f2e}
+
+/* ---------- 情报 ---------- */
+.intel{font-size:12.5px}
+.row{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed #1e2b38}
+.row:last-child{border-bottom:0}
+.row .lbl{color:var(--dim2)}
+.row .val{font-variant-numeric:tabular-nums;font-weight:600}
+.mini{font-size:11.5px;color:var(--dim2);margin:10px 0 0;line-height:1.6}
+.camprow{display:flex;align-items:center;gap:7px}
+.pip{width:6px;height:6px;border-radius:50%;flex:0 0 6px}
+
+/* ---------- 反馈 ---------- */
+.feedback{min-height:0}
+.outcome{
+  border-radius:11px;padding:12px 14px;border:1px solid var(--line);background:#0e151d;
+  animation:pop .22s ease-out;
+}
+@keyframes pop{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
+.outcome .verdict{font-size:15px;font-weight:800;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.outcome .verdict .delta{font-variant-numeric:tabular-nums;font-size:13px;padding:1px 7px;border-radius:6px}
+.delta.up{color:#8ef0bb;background:#0e2620}
+.delta.down{color:#ff9d8a;background:#2c1511}
+.outcome .desc{margin-top:6px;font-size:13px;color:#cfe0ee}
+.coach{
+  margin-top:9px;padding:9px 12px;border-radius:9px;background:#101c2b;border:1px solid #23405e;
+  font-size:12.5px;color:#bcd6ee;
+}
+.coach .ttl{font-weight:800;color:var(--gold);font-size:12px;letter-spacing:.4px;margin-bottom:3px}
+.coach.good{background:#0e2420;border-color:#256b45;color:#b5e8cd}
+.coach.good .ttl{color:var(--green)}
+.coach.bad{background:#231412;border-color:#7a3524;color:#f2c4ba}
+.coach.bad .ttl{color:#ff9d8a}
+
+/* ---------- 日志 ---------- */
+.log{max-height:250px;overflow-y:auto;font-size:12px;display:flex;flex-direction:column-reverse;gap:5px}
+.logitem{display:flex;gap:9px;padding:5px 8px;background:#0e151d;border-radius:7px;border-left:2px solid #2b3d4f}
+.logitem .t{flex:0 0 42px;color:var(--dim2);font-variant-numeric:tabular-nums}
+.logitem .m{flex:1;color:#c3d5e4}
+.logitem.good{border-left-color:#256b45}
+.logitem.bad{border-left-color:#7a3524}
+.logitem.obj{border-left-color:#7a5b1c}
+
+/* ---------- 报告 ---------- */
+.mask{
+  position:fixed;inset:0;background:rgba(4,7,10,.86);backdrop-filter:blur(3px);
+  display:none;align-items:flex-start;justify-content:center;padding:36px 16px;z-index:50;overflow-y:auto;
+}
+.mask.on{display:flex}
+.report{
+  width:min(880px,100%);background:var(--bg2);border:1px solid var(--line);border-radius:16px;
+  animation:pop .25s ease-out;overflow:hidden;
+}
+.report .head{padding:20px 24px;background:#0d151e;border-bottom:1px solid var(--line)}
+.report .head h3{margin:0;font-size:22px;letter-spacing:.5px}
+.report .head .sub{color:var(--dim2);font-size:13px;margin-top:3px}
+.report .content{padding:20px 24px}
+.rgrade{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:18px}
+.rgrade .letter{
+  font-size:52px;font-weight:900;line-height:1;letter-spacing:-2px;
+  background:linear-gradient(180deg,#ffe9a8,#f3c34a);-webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.rgrade .letter.bad{background:linear-gradient(180deg,#ffb4a3,#f3644a);-webkit-background-clip:text;background-clip:text}
+.rgrade .meta{font-size:13px;color:var(--dim2);line-height:1.7}
+.rgrade .meta b{color:var(--fg)}
+.rgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:9px;margin-bottom:18px}
+.rgrid .c{background:#0e151d;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.rgrid .c .k{font-size:11px;color:var(--dim2)}
+.rgrid .c .v{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums}
+.report h4{margin:18px 0 8px;font-size:13px;letter-spacing:.6px;color:var(--dim2);text-transform:uppercase}
+.tips{display:flex;flex-direction:column;gap:8px}
+.tip{background:#101c2b;border:1px solid #23405e;border-radius:10px;padding:11px 14px;font-size:13px}
+.tip b{color:var(--gold)}
+.tip .ev{color:var(--dim2);font-size:11.5px;margin-top:3px}
+.timeline{display:flex;flex-direction:column;gap:6px;max-height:230px;overflow-y:auto}
+.tl{display:flex;gap:10px;font-size:12px;padding:7px 10px;background:#0e151d;border-radius:8px;border-left:2px solid #2b3d4f}
+.tl.bad{border-left-color:#7a3524}
+.tl .tt{flex:0 0 46px;color:var(--dim2);font-variant-numeric:tabular-nums}
+.tl .cc{flex:1}
+.tl .cc em{font-style:normal;color:#ff9d8a}
+.tl .cc s{color:var(--green);text-decoration:none;font-weight:700}
+.foot{padding:14px 24px 20px;display:flex;gap:10px;flex-wrap:wrap}
+.bars{display:flex;flex-direction:column;gap:7px}
+.bar{display:flex;align-items:center;gap:9px;font-size:12px}
+.bar .bl{flex:0 0 120px;color:var(--dim2)}
+.bar .bt{flex:1;height:9px;background:#1a2532;border-radius:5px;overflow:hidden}
+.bar .bt i{display:block;height:100%;border-radius:5px}
+.bar .bn{flex:0 0 40px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+
+.help{font-size:13px;color:#c3d5e4}
+.help b{color:var(--gold)}
+.help ol{padding-left:20px;margin:8px 0}
+.help li{margin-bottom:5px}
+.warn{font-size:12px;color:var(--dim2);text-align:center;margin-top:22px}
+a{color:var(--blue)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="logo"><span class="dot"></span>打野教练 <small>· 决策训练场 v1.0</small></div>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="btnHelp">玩法说明</button>
+    <button class="btn primary" id="btnStart">开始对局</button>
+  </div>
+
+  <div class="hud" id="hud"></div>
+
+  <div class="main">
+    <div>
+      <div class="panel">
+        <h2>战场地图 <span class="tag" id="mapTag">— 未开始 —</span></h2>
+        <canvas id="map" width="840" height="622"></canvas>
+        <div class="legend">
+          <span><i class="sw" style="background:#3ddc84"></i>己方野区</span>
+          <span><i class="sw" style="background:#f3644a"></i>敌方野区</span>
+          <span><i class="sw" style="background:#f3c34a"></i>可刷 / 可拿</span>
+          <span><i class="sw" style="background:#455a70"></i>冷却中</span>
+          <span><i class="sw" style="background:#4aa8f3"></i>你</span>
+          <span><i class="sw" style="background:#f3644a;border-radius:50%"></i>敌方打野（最后出现位置）</span>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:14px">
+        <h2>事件日志 <span class="tag">最近的决策记录</span></h2>
+        <div class="body"><div class="log" id="log"></div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h2>可选动作 <span class="tag" id="turnTag">点击「开始对局」</span></h2>
+        <div class="body">
+          <div class="actions" id="actions"></div>
+          <div class="feedback" id="feedback" style="margin-top:12px"></div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:14px">
+        <h2>打野情报板 <span class="tag">倒计时 / 视野</span></h2>
+        <div class="body"><div class="intel" id="intel"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="warn">本游戏为决策训练模拟器，数值为教学化的近似模型，非官方数据。</p>
+</div>
+
+<div class="mask" id="mask"><div class="report" id="report"></div></div>
+
+<script>
+/* =====================================================================
+   打野教练 · 决策训练场
+   单文件网页游戏。用回合制模拟训练打野的四个核心决策：
+   刷野 / Gank / 入侵 / 拿龙。每回合给出期望收益，回合后给最优解对照，
+   局末输出决策复盘报告。
+   ===================================================================== */
+(function(){
+"use strict";
+
+/* ---------------------- 常量与配置 ---------------------- */
+var TURN_SEC   = 15;    // 每回合代表的游戏时间（秒）
+var TOTAL_TURN = 60;    // 60 回合 = 15 分钟
+var START_GOLD = 800;
+
+/* 敌方经济基线：模拟"一支正常发育的对手队伍"。
+   数值由 tools/sim.mjs 反复回归校准得出——目标是：
+   · 每回合都选最优解 → 稳定领先（约 90%+ 胜率）
+   · 完全随机乱点   → 大概率输
+   · 只会刷野       → 五五开偏下
+   改动这些常数后务必重新跑 `node tools/sim.mjs 300` 校验。 */
+var ENEMY_BASE_START  = 800;
+var ENEMY_BASE_GROWTH = 230;   // 敌方经济基础增速（每回合）
+
+var LANES = ['top','mid','bot'];
+var LANE_CN = {top:'上路', mid:'中路', bot:'下路'};
+
+var CAMP_TYPES = {
+  red:    {name:'红BUFF',     gold:150, cd:6, xp:150, big:true},
+  blue:   {name:'蓝BUFF',     gold:150, cd:6, xp:150, big:true},
+  pigs:   {name:'三猪',       gold:120, cd:5, xp:120},
+  wolves: {name:'狼群',       gold:120, cd:5, xp:120},
+  bird:   {name:'小鸟',       gold:80,  cd:4, xp:70},
+  stone:  {name:'石头人',     gold:110, cd:5, xp:100},
+  toad:   {name:'河道之灵',   gold:130, cd:5, xp:115},
+  frog:   {name:'魔沼蛙',     gold:110, cd:5, xp:100}
+};
+
+// 野怪点位（逻辑坐标 1000x740）
+var CAMPS = [
+  {id:'our_red',   side:'our',    type:'red',    x:642, y:598},
+  {id:'our_blue',  side:'our',    type:'blue',   x:838, y:82 },
+  {id:'our_pigs',  side:'our',    type:'pigs',   x:508, y:648},
+  {id:'our_wolves',side:'our',    type:'wolves', x:832, y:192},
+  {id:'our_bird',  side:'our',    type:'bird',   x:568, y:430},
+  {id:'our_stone', side:'our',    type:'stone',  x:888, y:268},
+  {id:'our_toad',  side:'our',    type:'toad',   x:388, y:672},
+  {id:'en_red',    side:'enemy',  type:'red',    x:358, y:142},
+  {id:'en_blue',   side:'enemy',  type:'blue',   x:162, y:658},
+  {id:'en_pigs',   side:'enemy',  type:'pigs',   x:492, y:92 },
+  {id:'en_wolves', side:'enemy',  type:'wolves', x:168, y:548},
+  {id:'en_bird',   side:'enemy',  type:'bird',   x:432, y:310},
+  {id:'en_stone',  side:'enemy',  type:'stone',  x:112, y:472},
+  {id:'en_toad',   side:'enemy',  type:'toad',   x:612, y:68 },
+  {id:'en_frog',   side:'enemy',  type:'frog',   x:308, y:322}
+];
+
+// 中立资源
+var OBJS = [
+  {id:'tyrant_s', name:'小暴君', type:'dragon', slot:'south', gold:160, obj:1, x:158, y:628},
+  {id:'tyrant_b', name:'大暴君', type:'baron',  slot:'north', gold:280, obj:2, x:842, y:112}
+];
+
+var TOWERS = [
+  // 敌方（上路下路对称）
+  {x:290,y:96, t:'enemy'}, {x:520,y:96, t:'enemy'},
+  {x:104,y:290,t:'enemy'}, {x:104,y:520,t:'enemy'},
+  {x:290,y:290,t:'enemy'}, {x:430,y:290,t:'enemy'},
+  // 己方
+  {x:710,y:644,t:'our'},  {x:480,y:644,t:'our'},
+  {x:896,y:450,t:'our'},  {x:896,y:220,t:'our'},
+  {x:710,y:450,t:'our'},  {x:570,y:450,t:'our'}
+];
+
+var POLY = {
+  top:  [[760,600],[640,600],[420,600],[300,470],[110,470],[110,104]],
+  mid:  [[700,520],[560,470],[428,388],[380,310],[240,308],[110,240]],
+  bot:  [[620,700],[400,700],[240,690],[150,500],[150,300],[110,240]]
+};
+
+/* ---------------------- 工具箱 ---------------------- */
+function ri(a,b){ return a + Math.floor(Math.random()*(b-a+1)); }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function byId(id){ return document.getElementById(id); }
+
+/* ---------------------- 游戏状态 ---------------------- */
+var G = null;
+var playHistory = [];
+
+function newGame(){
+  var g = {
+    turn:1, time:0, over:false,
+    gold:START_GOLD, level:1, kills:0, deaths:0, assists:0,
+    objGold:0, objCount:0, buffs:0, gankTry:0, gankOk:0,
+    idealSum:0, actualSum:0, regretSum:0,
+    enemyBase:ENEMY_BASE_START,
+    lanes:{}, camps:{}, objs:{},
+    hero:{x:892,y:388,zone:'our'},
+    enemyJungler:{x:0,y:0,zone:'unknown',lastSeen:0,pos:'unknown'},
+    lastOutcome:null,
+    // health: 英雄状态（1.0 = 满状态）。持续作战会掉状态，
+    // 掉到低状态时「回城补给」才成为高价值选项——这是真实的打野取舍。
+    health:1.0,
+    // invadeRun: 连续入侵同一片野区的次数。越大 → 对面回防概率越高、收益越低。
+    invadeRun:0,
+    metrics:{farming:0, gankGood:0, gankBad:0, obj:0, death:0}
+  };
+
+  LANES.forEach(function(L){
+    g.lanes[L] = { adv:0, ourK:0, enK:0, ourT:0, enT:0, gankSeq:0, cd:0 };
+  });
+
+  CAMPS.forEach(function(c){ g.camps[c.id] = {up:true, cd:0}; });
+
+  // 中立资源刷新计划：首次约 2 分钟（第 8 回合），之后每 5 回合（75 秒）一次。
+  // 节奏参照真实对局：小龙/暴君争夺是最关键的团队决策点，但不宜过于频繁。
+  var cyc=[[0,'south'],[5,'south'],[10,'north'],[15,'north'],[20,'south'],[25,'north'],[30,'south'],[35,'north'],[40,'south'],[45,'north']];
+  g.objSchedule = {};
+  OBJS.forEach(function(o){
+    g.objs[o.id] = {up:false, respawn:0};
+    g.objSchedule[o.id] = cyc.map(function(p){
+      var at = 8 + p[0];
+      return {at:at, slot:p[1], done:false, typed:o.type};
+    });
+  });
+
+  return g;
+}
+
+/* 当前分段的野怪价值（随局势成长） */
+function campValue(){
+  return 0.72 + G.turn/TOTAL_TURN*0.58;
+}
+
+/* 己方战力：等级 + 中立资源增益 + 经济 + 状态。
+   状态差（health 低）会直接拉低战力 —— 这就是"残血硬打 = 送"的数学表达。 */
+function power(){
+  var stamina = 0.72 + G.health*0.28;   // 满状态 1.0，最低约 0.79
+  return (1 + (G.level-1)*0.13 + G.buffs*0.03 + clamp(G.gold/3400,0,0.5)) * stamina;
+}
+
+/* 敌方战力（随时间与敌方经济成长） */
+function enemyPower(){
+  return 1 + (G.turn/TOTAL_TURN)*0.9 + clamp(G.enemyBase/7000,0,0.55);
+}
+
+/* ---------------------- 局势判定 ---------------------- */
+function laneScore(L){
+  var l = G.lanes[L];
+  return l.adv*0.75 + (l.ourK-l.enK)*0.7 + (l.ourT-l.enT)*0.45;
+}
+function laneNarrative(L){
+  var s = laneScore(L), l = G.lanes[L];
+  var part = s>1.6 ? '大优' : s>0.5 ? '小优' : s>-0.5 ? '均势' : s>-1.6 ? '小劣' : '大劣';
+  return part + '（' + (l.ourK-l.enK>=0?'+':'') + (l.ourK-l.enK) + '击杀，' + (l.ourT-l.enT>=0?'+':'') + (l.ourT-l.enT) + '塔）';
+}
+
+/* 敌方打野当前位置判定（玩家看不到，只有最后出现位置） */
+function rollEnemyPosition(){
+  var r = Math.random();
+  var L = LANES[ri(0,2)];
+  if (r < 0.42) return {zone:'spawn', lane:L, pos:'刷野'};
+  if (r < 0.66) return {zone:'lane', lane:L, pos:'在线'};
+  if (r < 0.84) return {zone:'our', lane:L, pos:'入侵我野区'};
+  if (r < 0.93) return {zone:'river', lane:L, pos:'河道游走'};
+  return {zone:'dead', lane:L, pos:'阵亡/回城'};
+}
+
+/* 敌方打野是否在附近（用于 Gank 判断） */
+function enemyJunglerNear(L){
+  var e = G.enemyJungler;
+  if (e.zone==='dead') return false;
+  if (e.zone==='our') return 0.34;
+  if (e.lane === L && e.zone==='lane') return 0.42;
+  if (e.lane === L && e.zone==='river') return 0.26;
+  if (e.lane === L && e.zone==='spawn') return 0.10;
+  return 0.06;
+}
+
+/* ---------------------- 决策引擎：动作打分 ---------------------- */
+/* 每个动作返回 {ev, hint, badges, kind, good, bad, apply}。ev 单位≈金币。 */
+function scoreAction(a){
+  var r = {kind:a.type, ev:0, hint:'', badges:[], good:'', bad:'', risk:0};
+  var cf = campValue();
+
+  if (a.type==='FARM'){
+    var c = G.camps[a.campId], t = CAMP_TYPES[a.campType];
+    if (!c || !c.up){ r.ev = 18; r.hint='附近野怪都在冷却，只能做点别的'; r.bad='该野怪还没刷新，白跑一趟'; r.risk=0.03; return r; }
+    var v = Math.round(t.gold*cf);
+    r.ev = v; r.hint = t.name + ' 已刷新 · 稳定收益';
+    if (t.big) r.bad = 'BUFF 刷新了就该吃，这是打野最基础的经济来源';
+    r.risk = 0.03;
+    r.apply = function(){
+      c.up = false; c.cd = t.cd;
+      return {value:v, head:'刷下 '+t.name, desc:'稳稳吃掉 '+t.name+'，'+v+' 金币到账。', meter:'good'};
+    };
+    if (t.big) r.bad = 'BUFF 刷了不吃，等于把节奏让给对面';
+    return r;
+  }
+
+  if (a.type==='GANK'){
+    var L = a.lane, lane = G.lanes[L];
+    var sc = laneScore(L);
+    var p = clamp(0.50 + sc*0.10 + (power()-enemyPower())*0.16 - (lane.cd>0?(lane.gankSeq>=2?0.22:0.10):0), 0.08, 0.93);
+    /*
+     * Gank 的收益结构（这是本游戏最核心的一个模型）：
+     *   击杀收益 ≈ 人头金 + 兵线/推进的隐性收益（对面上单少吃一波 = 我们赚）
+     *   失败成本 ≈ 一轮刷野时间被浪费
+     *   反蹲成本 ≈ 死亡 + 节奏全丢（最高单项惩罚）
+     * okObj 这一项代表"Gank 成功后顺势推线 / 拿视野"的连带收益——
+     * 没有它的话，Gank 期望会被"稳定刷野"永远压过，不符合真实打野的取舍。
+     */
+    var baseKill = 120 + G.turn*2.6;
+    var okV = Math.round(baseKill + (sc>1?80:0) + (lane.ourT>lane.enT?45:0));
+    var okObj = Math.round(70 + 20*cf);
+    var failV = -Math.round(38 + G.turn*1.7);
+    // 反蹲
+    var cgP = enemyJunglerNear(L);
+    var cgV = -Math.round(58 + G.turn*2.6);
+    var ev = p*(okV+okObj) + (1-p)*failV + cgP*cgV;
+
+    var risky = (1-p)>0.42 || cgP>0.25;
+    r.ev = ev; r.risk = 1-p;
+    r.hint = '成功率约 '+Math.round(p*100)+'% · ' + (sc>1.4?'路优，抓得到':sc>0.4?'略优，可尝试':sc>-0.6?'均势，看操作':'路劣，很难抓')
+           + (lane.cd>0 && lane.gankSeq>=2 ? ' · 连续抓同路，对面已警觉' : '');
+    if (cgP>0.25) r.badges.push(['danger','有反蹲风险']);
+    if (sc>1.4) r.badges.push(['good','路权优']);
+    if (lane.cd>0 && lane.gankSeq>=2) r.badges.push(['info','第'+lane.gankSeq+'次抓']);
+    r.good = '路权优 + 对面打野不在附近 = 高价值 Gank，这就是打野该拿的钱';
+    r.bad  = '路劣或没线权硬抓，等于送节奏；连续抓同一条路会被反蹲';
+    r.apply = function(){
+      G.gankTry++;
+      var counter = Math.random() < cgP;
+      if (counter){
+        G.deaths++; G.metrics.death++; lane.adv -= 1; lane.enK++;
+        return {value:cgV, head:'被反蹲阵亡', desc:'对面打野就在草里。你一脚进场，直接被反手控住秒掉——这波是典型的「只看兵线不看打野位置」。', meter:'bad'};
+      }
+      if (Math.random() < p){
+        G.gankOk++; G.kills++; lane.ourK++; lane.adv += 1; lane.gankSeq++; lane.cd = 4;
+        G.metrics.gankGood++;
+        return {value:okV+okObj, head:'Gank 成功', desc:'从河道绕后进场，先手控住' + LANE_CN[L] + '的 C 位，配合队友收掉。拿到击杀 + 兵线权。', meter:'good'};
+      }
+      G.deaths++; G.metrics.death++; lane.enK++; lane.adv -= 1; lane.gankSeq++; lane.cd = 4;
+      return {value:failV, head:'Gank 失败', desc:'刚到河道就被发现了。' + LANE_CN[L] + '交了闪现拉开，你白白浪费一轮刷野时间，对面打野趁机多吃两组野。', meter:'bad'};
+    };
+    return r;
+  }
+
+  if (a.type==='INVADE'){
+    var en = CAMPS.filter(function(x){ return x.side==='enemy' && G.camps[x.id].up; });
+    if (!en.length){ r.ev = 20; r.hint='对面野区全清空了，没什么可偷'; r.bad='空野区入侵没有意义，不如去别处'; r.risk=0.03; return r; }
+    var best = en[0];
+    en.forEach(function(x){ if (CAMP_TYPES[x.type].gold > CAMP_TYPES[best.type].gold) best = x; });
+    var t2 = CAMP_TYPES[best.type];
+
+    /*
+     * 入侵模型（关键约束，避免"无限反野"成为最优解）：
+     *  1) 连续入侵疲劳 —— 对面打野不是木头人，你反复进同一个半区，
+     *     他会回防、会做视野。所以收益递减、被抓概率递增。
+     *  2) 依赖情报 —— 只有"刚看到对面打野在别处"时才真正安全。
+     *     没情报就入侵 = 赌命。
+     */
+    var fatigue = G.invadeRun || 0;
+    var known = (G.turn - G.enemyJungler.lastSeen) <= 2 && G.enemyJungler.zone !== 'our';
+
+    /*
+     * 一条真实的打野推理：对面野区还剩很多组野 → 说明对面打野
+     * 刚把时间花在别处（抓人/回城/在河道），这一片现在是安全区。
+     * 所以"可偷组数"不只是收益乘数，更应该降低被抓概率。
+     * 反之，野区被清得干干净净，说明他刚扫过，进去就要撞脸。
+     */
+    var campOpen = en.length;                       // 对面还没清掉的野怪组数
+    var eZone = G.enemyJungler.zone;
+    var baseRisk = eZone==='spawn' ? 0.26 : eZone==='lane' ? 0.18 : eZone==='our' ? 0.08 : eZone==='river' ? 0.13 : 0.05;
+    var openDiscount = campOpen >= 4 ? 0.12 : campOpen >= 2 ? 0.06 : 0.0;
+    var inP = clamp(baseRisk + fatigue*0.16 - (known ? 0.12 : 0) - openDiscount, 0.03, 0.70);
+
+    /*
+     * 反野的"交通成本"：这是平衡这个动作最关键的一项。
+     * 没有它，反野会变成无限提款机 —— 对面野区永远刷着，你可以每回合都进去拿钱，
+     * 于是"一直反野"成了数学上的最优解（回归测试里它一度占到 51% 的回合）。
+     * 真实情况是：跨半区移动要时间、要绕视野，连进同一个半区还会撞上回防。
+     * 因此把它建模成随时间递减的时间效率 factor。
+     */
+    var travel = clamp(1 - fatigue*0.22, 0.25, 1);
+
+    var steal = Math.round((t2.gold*cf*1.30 + (G.enemyBase-G.gold>800?60:0)) * travel);
+    var death = -Math.round(70 + G.turn*3.1);
+    var ev2 = steal*(1-inP) + inP*0.55*(steal*0.5) + inP*0.45*death;
+    r.ev = ev2;
+    // 一次能连偷多组时额外加价（这就是"整片野区都归你"的收益）
+    var multi = campOpen>=3 && fatigue===0;
+    if (multi){ r.ev += 55; steal += 45; }
+    r.risk = inP;
+    r.hint = '可偷 '+en.length+' 组野 · ' + (known ? '情报：对面打野刚在别处露面 ✓' : '情报：不确定对面打野位置 ✗')
+           + ' · 被抓概率约 '+Math.round(inP*100)+'%'
+           + (multi ? ' · 对面野区大片空着' : '')
+           + (fatigue>0 ? ' · 连续入侵第 '+(fatigue+1)+' 次，对面已开始回防' : '');
+    if (inP>0.3) r.badges.push(['danger','高风险']);
+    if (known) r.badges.push(['good','情报明确']);
+    if (fatigue>0) r.badges.push(['info','连续入侵']);
+    if (multi) r.badges.push(['good','多组可偷']);
+    r.good = '对面打野位置明确（刚在别处露面）时入侵收益极高：拿经济 + 拿信息 + 压制对方发育';
+    r.bad  = '对面打野行踪不明就入侵，等于赌命；连续入侵同一片野区会被回防反抓';
+    r.apply = function(){
+      /*
+       * 注意：这里成功时"不清零"疲劳值，只 +1；疲劳值每个回合会自然衰减。
+       * 早期版本成功即清零，结果反野可以无限连做（回归测试里占到 51% 的回合）。
+       * 现在改成累积+衰减，连续反野才会真正付出代价，隔几回合再做又划算。
+       */
+      G.invadeRun = (G.invadeRun||0) + 1;
+      var caught = Math.random() < inP;
+      var stolen = 0, list = [];
+      if (caught){
+        // 被抓：可能换掉一部分，也可能死
+        if (Math.random() < 0.45){
+          G.camps[best.id].up = false; G.camps[best.id].cd = CAMP_TYPES[best.type].cd;
+          stolen = Math.round(steal*0.5);
+          G.deaths++; G.metrics.death++;
+          return {value:Math.round(death*0.55)+stolen, head:'入侵被抓，勉强换掉一组', desc:'反野到一半撞上对面打野，拼掉了 '+t2.name+' 但也被收掉。这类亏损本来可以完全避免。', meter:'bad'};
+        }
+        G.deaths++; G.metrics.death++; G.enemyBase += 120;
+        return {value:death, head:'入侵被抓阵亡', desc:'对面打野就在自家野区，你被抓了个正着。没信息就别乱进——这是打野送节奏最快的方式。', meter:'bad'};
+      }
+      en.forEach(function(x){
+        var tt = CAMP_TYPES[x.type];
+        if (Math.random() < 0.7){ G.camps[x.id].up = false; G.camps[x.id].cd = tt.cd; stolen += Math.round(tt.gold*cf); list.push(tt.name); }
+      });
+      if (list.length){
+        // 反野成功 → 获得对方打野的大致位置信息
+        G.enemyJungler.lastSeen = G.turn;
+        return {value:stolen, head:'反野成功', desc:'敌方野区空着，你连吃 '+list.join('、')+'。同时确认了对面打野不在这一片——这是额外收益。', meter:'good'};
+      }
+      return {value:18, head:'扑了个空', desc:'野怪刚被清完，你白跑一趟。', meter:'bad'};
+    };
+    return r;
+  }
+
+  if (a.type==='HOLD'){
+    var La = a.lane, la = G.lanes[La];
+    /*
+     * 蹲草守护的价值来自「危险有多大」：
+     *  - 该路线权越差，对面越可能来抓，守护的价值越高
+     *  - 我方塔被推掉越多，防线越吃紧
+     *  - 已知对方打野活跃在这一带时，价值最高
+     * 反过来，顺风局蹲草就是浪费时间——所以它不会是永远的最优解。
+     */
+    var sc2 = laneScore(La);
+    var threat = clamp(-sc2, 0, 3) * 34 + (la.ourT - la.enT < 0 ? 40 : 0);
+    var v2 = Math.round(55 + G.turn*0.6 + threat);
+    var blockP = (G.enemyJungler.zone==='lane' && G.enemyJungler.lane===La) ? 0.65
+               : (G.enemyJungler.zone==='river' || G.enemyJungler.zone==='our') ? 0.28 : 0.10;
+    var blockGain = 110;
+    r.ev = Math.round(v2 + blockP*blockGain);
+    r.risk = 0.03;
+    r.hint = '蹲在' + LANE_CN[La] + '侧翼/草丛 · 防对面打野 · 拦截成功率约 '+Math.round(blockP*100)+'%'
+           + (threat>60 ? ' · 这条线正在被打穿' : '');
+    if (threat > 60) r.badges.push(['good','路劣需保护']);
+    if (sc2 > 1.2) r.badges.push(['info','顺风线，可少守']);
+    r.good = '己方线上被压制时，守护蹲草能挡掉对面的 Gank，价值不体现在数据上但直接决定比赛走向';
+    r.bad  = '顺风局一直蹲草不刷野，是把节奏浪费掉；防守要看哪条线真的危险';
+    r.apply = function(){
+      var blocked = Math.random() < blockP;
+      if (blocked){
+        la.gankSeq = 0; la.cd = 0; la.adv += 1;
+        G.assists++;
+        return {value:v2+blockGain, head:'成功守护', desc:'你提前蹲在' + LANE_CN[La] + '草丛，对面打野果然来了——你反手接团，救下队友还拿到助攻。', meter:'good'};
+      }
+      la.adv += 0.25;
+      G.health = Math.min(1, G.health + 0.06);
+      return {value:v2, head:'驻守' + LANE_CN[La], desc:'你在侧翼压住视野，对面不敢越塔。这段时间没拿到经济，但线上安全。', meter:'neutral'};
+    };
+    return r;
+  }
+
+  if (a.type==='OBJ'){
+    var o = OBJS.filter(function(x){ return x.id===a.objId; })[0];
+    var st = G.objs[o.id];
+    if (!st.up){ r.ev = 20; r.hint = o.name+' 还没刷新'; r.bad='资源没刷就打不了，注意看倒计时'; r.risk=0.03; return r; }
+    /*
+     * 打龙的成功率模型 —— 这里曾经调错过一次，值得说明。
+     * 最初的公式过于保守（基础成功率只有 62%，还被两个惩罚项猛砍），
+     * 结果"无脑打龙"策略的胜率反而超过"按期望值选"策略：
+     * 说明模型低估了拿龙的收益、高估了它的风险。
+     * 真实情况是：只要满足「有线权 + 知道对面打野位置」，
+     * 打龙是一次低风险的确定性收益（惩罚主要来自"被抢"而不是"被打死"）。
+     * 因此现在的公式：基础成功率更高，且惩罚只挂在"确实危险"的两个条件上。
+     */
+    var hostile = enemyJunglerNear('mid') + (G.enemyJungler.zone==='river'?0.2:0);
+    var laneBack = LANES.filter(function(L){ return G.lanes[L].adv < -1.2; }).length;
+    /*
+     * "情报"因子：距离上次看到对面打野越久，打龙越危险
+     * （他可能正蹲在龙坑后面等你们先手）。
+     * 这条是区分"会打野"和"不会打野"的核心——无信息开龙是最典型的送节奏。
+     */
+    var stale = clamp((G.turn - G.enemyJungler.lastSeen) / 10, 0, 1);
+    var op = clamp(0.86 + (power()-enemyPower())*0.20 - hostile*0.45 - laneBack*0.13 - stale*0.28, 0.15, 0.95);
+    var greed = Math.round(o.gold*cf + (G.turn>30?80:0));
+    // 失败的主要代价是"时间 + 被抢"：掉龙、掉节奏，但通常不会顺手把命也丢了。
+    // 因此它的惩罚应当接近"浪费一轮刷野"，而不是等于一次阵亡。
+    var lose = -Math.round(45 + G.turn*1.2);
+    r.ev = op*greed + (1-op)*lose;
+    r.risk = 1-op;
+    r.hint = o.name + ' 已刷新 · obj '+o.obj+' · 成功率约 '+Math.round(op*100)+'%'
+           + (stale>0.5 ? ' · ⚠ 对面打野已失联 '+(G.turn-G.enemyJungler.lastSeen)+' 回合' : ' · 情报较新');
+    if (laneBack>0) r.badges.push(['danger', '有'+laneBack+'路被压']);
+    if (hostile>0.25) r.badges.push(['danger','敌方打野在附近']);
+    r.badges.push(['obj','团队资源']);
+    r.good = '拿龙的前提是「线权 + 对面打野位置明确」。有这两样，龙就是白送的团队经济';
+    r.bad  = '线上被压、对面打野行踪不明时硬打龙，是最容易把节奏送出去的选择';
+    r.apply = function(){
+      if (Math.random() < op){
+        st.up = false; st.respawn = 12;
+        G.objGold += greed; G.objCount += o.obj; G.buffs += o.type==='baron'?2:1; G.metrics.obj++;
+        return {value:greed, head:'拿下 '+o.name, desc:'队友掩护到位，你稳稳收掉 '+o.name+'。全队获得资源增益（obj +'+o.obj+'）。', meter:'good'};
+      }
+      G.deaths++; G.metrics.death++; G.enemyBase += 100;
+      return {value:lose, head:'打龙被打断', desc:'龙没打完，对面打野带人包过来，你被收掉，龙也丢了。下次先确认对面打野的位置再动。', meter:'bad'};
+    };
+    return r;
+  }
+
+  if (a.type==='RECALL'){
+    /*
+     * 回城价值 = 基础补装备收益 + 状态恢复收益。
+     * 状态（health）越低，恢复带来的收益越高；满状态回城几乎没价值。
+     * 这让「回城」在正确的时机（低血线、刚打完团）自然成为最优解。
+     */
+    var missing = clamp(1 - G.health, 0, 1);
+    var rv = Math.round(46 + G.turn*0.35 + missing*230);
+    r.ev = rv;
+    r.risk = 0.02;
+    r.hint = '状态 ' + Math.round(G.health*100) + '% · '
+           + (missing>0.45 ? '状态很差，该回城补给了'
+              : missing>0.2 ? '状态偏低，可以考虑'
+              : '状态良好，回城收益很低');
+    if (missing > 0.45) r.badges.push(['good','该补给了']);
+    r.good = '血线低、或者刚打完一波团时，回城补状态比硬撑更划算——低状态硬打等于送人头';
+    r.bad  = '满状态回城是纯浪费时间，节奏局里一分钟就是一组野';
+    r.apply = function(){
+      G.health = 1;
+      return {value:rv, head:'回城补给', desc:'回泉水补状态、更新装备，战力恢复。代价是这段时间没有地图压力。', meter: missing>0.3?'good':'neutral'};
+    };
+    return r;
+  }
+
+  // 兜底
+  r.ev = 20; r.hint='—';
+  r.apply = function(){ return {value:20, head:'等待', desc:'什么都没做。', meter:'neutral'}; };
+  return r;
+}
+
+/* 生成当前可选动作 */
+function buildActions(){
+  var list = [];
+
+  // 1. 刷野（最近的可用野怪，最多两个：一个BUFF优先 + 一个普通）
+  var ours = CAMPS.filter(function(c){ return c.side==='our' && G.camps[c.id].up; });
+  ours.sort(function(a,b){
+    var d = function(c){ return Math.hypot(c.x-G.hero.x, c.y-G.hero.y); };
+    return d(a)-d(b);
+  });
+  var buffsAvail = ours.filter(function(c){ return CAMP_TYPES[c.type].big; });
+  var picks = buffsAvail.length ? [buffsAvail[0]] : [];
+  ours.forEach(function(c){ if (picks.length<1 && picks.indexOf(c)<0) picks.push(c); });
+  if (picks.length) {
+    var pc = picks[0];
+    list.push({type:'FARM', campId:pc.id, campType:pc.type,
+      label:'刷 '+CAMP_TYPES[pc.type].name, hintAuto:true});
+  } else {
+    list.push({type:'FARM', campId:null, campType:null, label:'刷野（全冷却）', disabled:true});
+  }
+
+  // 2. Gank 三条路
+  LANES.forEach(function(L){
+    list.push({type:'GANK', lane:L, label:'Gank '+LANE_CN[L]});
+  });
+
+  // 3. 入侵
+  list.push({type:'INVADE', label:'入侵敌方野区'});
+
+  // 4. 拿资源
+  OBJS.forEach(function(o){
+    if (G.objs[o.id].up) list.push({type:'OBJ', objId:o.id, label:'拿 '+o.name});
+  });
+
+  // 5. 守护蹲草（选最危险的一路）
+  var worst = LANES.slice().sort(function(a,b){ return laneScore(a)-laneScore(b); })[0];
+  list.push({type:'HOLD', lane:worst, label:'蹲草守护 '+LANE_CN[worst]});
+
+  // 6. 回城
+  list.push({type:'RECALL', label:'回城补给'});
+
+  return list;
+}
+
+/* ---------------------- 回合推进 ---------------------- */
+function takeAction(a){
+  if (!G || G.over) return;
+  var scored = scoreAction(a);
+
+  // 记录本回合最优解（用于复盘）
+  var all = buildActions().filter(function(x){ return !x.disabled; }).map(function(x){
+    var s = scoreAction(x);
+    s.action = x;
+    return s;
+  });
+  var best = all.reduce(function(m,x){ return (!m || x.ev>m.ev) ? x : m; }, null);
+
+  // 结算
+  var out = scored.apply ? scored.apply() : {value:20, head:'等待', desc:'—', meter:'neutral'};
+  var delta = out.value;
+
+  G.gold += delta;
+  if (scored.kind==='FARM') G.metrics.farming += Math.max(0,delta);
+  // 注意：OBJ 的 objGold 已经在 apply() 里累加过了，这里不要再加一次。
+
+  // 记录理想值 / 实际值 / 后悔值
+  var idealEV = Math.max(0, Math.round(best.ev));
+  G.idealSum += idealEV;
+  G.actualSum += delta;
+  var regret = Math.max(0, idealEV - delta);
+  G.regretSum += regret;
+
+  // 敌方经济成长：基础增速 + 落后方追赶补偿（避免一局早早失去悬念）
+  var behind = clamp((G.enemyBase - G.gold) / 4000, 0, 1);
+  var growth = ENEMY_BASE_GROWTH + Math.round(behind * 80);
+  G.enemyBase += growth;
+  // 敌方打野顺手偷我们的野（如果他们入侵）
+  if (G.enemyJungler.zone==='our'){
+    var stealable = CAMPS.filter(function(c){ return c.side==='our' && G.camps[c.id].up; });
+    if (stealable.length){
+      var sc = stealable[ri(0,stealable.length-1)];
+      G.camps[sc.id].up = false; G.camps[sc.id].cd = CAMP_TYPES[sc.type].cd;
+      G.enemyBase += Math.round(CAMP_TYPES[sc.type].gold*campValue()*0.9);
+    }
+  }
+
+  // 记录本回合历史
+  playHistory.push({
+    turn:G.turn, time:G.time,
+    picked: scored.kind === 'GANK' || scored.kind==='HOLD' ? scored.kind+' '+LANE_CN[a.lane] : (scored.kind==='OBJ' ? 'OBJ '+(OBJS.filter(function(o){return o.id===a.objId;})[0]||{}).name : scored.kind),
+    pickedLabel: a.label,
+    delta: delta,
+    ideal: idealEV,
+    bestLabel: best && best.action ? best.action.label : '—',
+    regret: regret
+  });
+  if (regret > 0){
+    var key = scored.kind;
+    if (key==='FARM') G.metrics.overFarm = (G.metrics.overFarm||0) + regret;
+    if (key==='GANK') G.metrics.badGank = (G.metrics.badGank||0) + regret;
+    if (key==='INVADE') G.metrics.badInvade = (G.metrics.badInvade||0) + regret;
+    if (key==='RECALL') G.metrics.badRecall = (G.metrics.badRecall||0) + regret;
+  }
+  if (scored.kind==='GANK' && delta < 0) G.metrics.badGankCount = (G.metrics.badGankCount||0)+1;
+  if (scored.kind==='INVADE' && delta < 0) G.metrics.badInvadeCount = (G.metrics.badInvadeCount||0)+1;
+  if (scored.kind==='GANK' && delta > 0) G.metrics.goodGankCount = (G.metrics.goodGankCount||0)+1;
+
+  /*
+   * 状态（health）变化模型：
+   *   持续作战（入侵/打龙/Gank）会掉状态；
+   *   刷野、蹲草小幅恢复；回城全额恢复；
+   *   阵亡直接满状态复活。
+   * 状态低于阈值时，Gank / 打龙的成功率与收益会同步下降
+   * （见 power() 里的 health 惩罚），这就是"低血线硬打 = 送"的机制来源。
+   */
+  if (delta < 0) G.health = 1;                       // 阵亡 → 满状态复活
+  else if (scored.kind==='INVADE') G.health = clamp(G.health - 0.22, 0.25, 1);
+  else if (scored.kind==='OBJ')    G.health = clamp(G.health - 0.18, 0.25, 1);
+  else if (scored.kind==='GANK')   G.health = clamp(G.health - 0.15, 0.25, 1);
+  else if (scored.kind==='FARM')   G.health = clamp(G.health + 0.07, 0.25, 1);
+  else if (scored.kind==='RECALL') G.health = 1;
+  else                             G.health = clamp(G.health + 0.04, 0.25, 1);
+
+  /*
+   * 反野疲劳值的自然衰减：每回合 -1。
+   * 配合"每次入侵 +1"，形成"连做会越来越亏、隔几回合再做又划算"的节奏，
+   * 而不是永久惩罚。这样"入侵"既不会被无视，也不会变成无限最优解。
+   */
+  if (!(scored.kind === 'INVADE') && G.invadeRun > 0) {
+    G.invadeRun = Math.max(0, G.invadeRun - 1);
+  }
+
+  // 更新英雄位置
+  if (scored.kind==='FARM' && a.campId){
+    var c = CAMPS.filter(function(x){return x.id===a.campId;})[0];
+    G.hero.x = c.x; G.hero.y = c.y; G.hero.zone = 'our';
+    G.level = Math.min(15, G.level + 1);
+  } else if (scored.kind==='GANK' || scored.kind==='HOLD'){
+    G.hero.zone = G.hero.zone==='our' ? 'our' : 'our';
+    var lanePt = {top:[300,470], mid:[428,388], bot:[240,690]}[a.lane];
+    G.hero.x = lanePt[0]; G.hero.y = lanePt[1];
+    if (scored.kind==='GANK') G.level = Math.min(15, G.level + 1);
+  } else if (scored.kind==='INVADE'){
+    G.hero.zone = 'enemy'; G.hero.x = 358; G.hero.y = 142;
+    G.level = Math.min(15, G.level + 1);
+  } else if (scored.kind==='OBJ'){
+    var o = OBJS.filter(function(x){return x.id===a.objId;})[0];
+    G.hero.x = o.x; G.hero.y = o.y;
+    G.level = Math.min(15, G.level + 1);
+  } else if (scored.kind==='RECALL'){
+    G.hero.x = 892; G.hero.y = 388; G.hero.zone = 'our';
+  }
+
+  // 反馈
+  G.lastOutcome = {
+    scored: scored, out: out, best: best, ideal: idealEV, delta: delta, regret: regret,
+    action: a
+  };
+
+  // 推进时间
+  G.turn++;
+  G.time = (G.turn-1)*TURN_SEC;
+
+  // 冷却推进
+  CAMPS.forEach(function(c){
+    var s = G.camps[c.id];
+    if (!s.up){ s.cd--; if (s.cd<=0){ s.up = true; } }
+  });
+  LANES.forEach(function(L){ if (G.lanes[L].cd>0) G.lanes[L].cd--; else G.lanes[L].gankSeq = 0; });
+  OBJS.forEach(function(o){
+    var s = G.objs[o.id];
+    if (!s.up && s.respawn>0){ s.respawn--; if (s.respawn<=0) s.up = true; }
+  });
+
+  // 资源刷新计划
+  OBJS.forEach(function(o){
+    G.objSchedule[o.id].forEach(function(ev){
+      if (!ev.done && G.turn >= ev.at){
+        ev.done = true;
+        G.objs[o.id].up = true; G.objs[o.id].respawn = 0;
+        G.objs[o.id].spawnedAt = G.turn;
+      }
+    });
+  });
+
+  // 野区随时间自然刷新（保证节奏不会卡死）
+  CAMPS.forEach(function(c){
+    if (!G.camps[c.id].up && G.camps[c.id].cd <= 0 && Math.random() < 0.22){
+      G.camps[c.id].up = true;
+    }
+  });
+
+  // 敌方打野移动
+  G.enemyJungler = (function(){
+    var p = rollEnemyPosition();
+    var pt = {top:[300,470], mid:[428,388], bot:[240,690]}[p.lane];
+    var x, y;
+    if (p.zone==='our'){ x=760; y=520; }
+    else if (p.zone==='enemy' || p.zone==='spawn'){ x=240; y=180; }
+    else { x=pt[0]; y=pt[1]; }
+    return {zone:p.zone, lane:p.lane, pos:p.pos, x:x, y:y, lastSeen: G.enemyJungler.lastSeen};
+  })();
+
+  // 视野更新：如果玩家在地图上附近，就能看到敌方打野
+  if (G.hero.zone==='enemy' || (scored.kind==='OBJ')) G.enemyJungler.lastSeen = G.turn;
+
+  // 结束判定
+  if (G.turn > TOTAL_TURN) G.over = true;
+}
+
+/* ---------------------- 渲染 ---------------------- */
+function timeStr(){
+  var s = G ? G.time : 0;
+  var m = Math.floor(s/60), ss = s%60;
+  return m + ':' + (ss<10?'0':'') + ss;
+}
+
+function renderHUD(){
+  var lead = G.gold - G.enemyBase;
+  var acc = G.idealSum>0 ? Math.round(clamp(G.actualSum/G.idealSum,0,1.6)*100) : 100;
+  var html = '';
+  html += stat('比赛时间', timeStr(), 'small');
+  html += stat('回合', G.turn> TOTAL_TURN ? TOTAL_TURN : G.turn, 'small', '/60');
+  html += stat('我的经济', G.gold, 'gold', '金');
+  html += stat('敌方经济', G.enemyBase, 'red', '金');
+  var leadCls = lead>=0?'green':'red';
+  html += '<div class="stat"><div class="k">经济差</div><div class="v '+leadCls+'">'+(lead>=0?'+':'')+lead+'</div>'
+        + '<div class="leadbar"><i style="width:'+clamp((lead+1500)/3000*100,3,100)+'%"></i></div></div>';
+  html += stat('K / D / A', G.kills+' / '+G.deaths+' / '+G.assists);
+  var hpPct = Math.round(G.health*100);
+  html += '<div class="stat"><div class="k">状态</div><div class="v '+(hpPct>70?'green':hpPct>45?'gold':'red')+'">'+hpPct+'%</div>'
+        + '<div class="leadbar"><i style="width:'+hpPct+'%;background:'+(hpPct>70?'#3ddc84':hpPct>45?'#f3c34a':'#f3644a')+'"></i></div></div>';
+  html += stat('决策质量', acc+'%', acc>=85?'green':acc>=65?'gold':'red');
+  byId('hud').innerHTML = html;
+}
+function stat(k,v,cls,unit){
+  return '<div class="stat"><div class="k">'+k+'</div><div class="v '+(cls||'')+'">'+v
+       + (unit?'<small>'+unit+'</small>':'') + '</div></div>';
+}
+
+function renderMap(){
+  var cv = byId('map'), ctx = cv.getContext('2d');
+  var W = cv.width, H = cv.height;
+  var sx = W/1000, sy = H/740;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,W,H);
+
+  // 背景
+  ctx.fillStyle = '#080c11'; ctx.fillRect(0,0,W,H);
+
+  function P(x,y){ return [x*sx, y*sy]; }
+  function rect(x,y,w,h,fill,stroke){
+    ctx.fillStyle = fill; ctx.fillRect(x*sx,y*sy,w*sx,h*sy);
+    if (stroke){ ctx.strokeStyle = stroke; ctx.lineWidth = 1.4; ctx.strokeRect(x*sx,y*sy,w*sx,h*sy); }
+  }
+
+  // 野区底色
+  rect(400,400,600,340,'rgba(61,220,132,0.055)','rgba(61,220,132,0.20)');
+  rect(0,0,400,400,'rgba(243,100,74,0.055)','rgba(243,100,74,0.20)');
+
+  // 河道（对角线带）
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(0*sx, 400*sy); ctx.lineTo(400*sx, 0*sy);
+  ctx.lineTo(640*sx, 0*sy); ctx.lineTo(0*sx, 560*sy);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(74,168,243,0.06)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(74,168,243,0.16)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.restore();
+
+  // 草丛
+  [[430,470],[250,330],[560,560],[330,620],[168,240],[600,180]].forEach(function(p){
+    ctx.beginPath();
+    ctx.arc(p[0]*sx, p[1]*sy, 20*Math.min(sx,sy), 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(61,220,132,0.10)'; ctx.fill();
+  });
+
+  // 兵线
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ['top','mid','bot'].forEach(function(L){
+    ctx.beginPath();
+    POLY[L].forEach(function(p,i){ var q=P(p[0],p[1]); i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]); });
+    ctx.strokeStyle = 'rgba(180,205,230,0.20)'; ctx.lineWidth = 9; ctx.stroke();
+    ctx.strokeStyle = 'rgba(200,225,245,0.42)'; ctx.lineWidth = 2; ctx.stroke();
+  });
+
+  // 塔
+  TOWERS.forEach(function(t){
+    var q = P(t.x,t.y), s = 5.2*Math.min(sx,sy);
+    ctx.fillStyle = t.t==='our' ? '#3ddc84' : '#f3644a';
+    ctx.fillRect(q[0]-s/2, q[1]-s/2, s, s);
+    ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.lineWidth = 1; ctx.strokeRect(q[0]-s/2, q[1]-s/2, s, s);
+  });
+
+  // 泉水
+  [[892,388,'#3ddc84','我方'], [108,92,'#f3644a','敌方']].forEach(function(b){
+    var q = P(b[0],b[1]);
+    ctx.beginPath(); ctx.arc(q[0],q[1], 22*Math.min(sx,sy), 0, Math.PI*2);
+    ctx.fillStyle = b[2]+'22'; ctx.fill();
+    ctx.strokeStyle = b[2]+'99'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = b[2]; ctx.font = '600 11px "Microsoft YaHei",sans-serif';
+    ctx.textAlign='center'; ctx.fillText(b[3], q[0], q[1]+34*Math.min(sx,sy));
+  });
+
+  // 野怪点
+  CAMPS.forEach(function(c){
+    var q = P(c.x,c.y), s = G.camps[c.id];
+    var R = (CAMP_TYPES[c.type].big?9:7)*Math.min(sx,sy);
+    var avail = s.up;
+    var col = avail ? (c.side==='our' ? '#f3c34a' : '#e08a5a') : '#33475b';
+    ctx.beginPath(); ctx.arc(q[0],q[1], R, 0, Math.PI*2);
+    ctx.fillStyle = col + (avail?'':'cc'); ctx.fill();
+    if (CAMP_TYPES[c.type].big){
+      ctx.strokeStyle = avail ? '#fff' : '#4b6178'; ctx.lineWidth = 1.6; ctx.stroke();
+    }
+    if (!avail && s.cd>0){
+      ctx.fillStyle = '#93a9bd'; ctx.font='600 9px system-ui'; ctx.textAlign='center';
+      ctx.fillText(s.cd, q[0], q[1]-R-3);
+    }
+  });
+
+  // 中立资源
+  OBJS.forEach(function(o){
+    var q = P(o.x,o.y), st = G.objs[o.id];
+    var R = 15*Math.min(sx,sy);
+    ctx.beginPath(); ctx.arc(q[0],q[1], R, 0, Math.PI*2);
+    if (st.up){
+      ctx.fillStyle = o.type==='baron' ? 'rgba(243,195,74,.30)' : 'rgba(74,168,243,.26)';
+      ctx.fill();
+      ctx.strokeStyle = o.type==='baron' ? '#f3c34a' : '#4aa8f3'; ctx.lineWidth = 2.4; ctx.stroke();
+    } else {
+      ctx.strokeStyle = '#33475b'; ctx.lineWidth = 2; ctx.setLineDash([4,3]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.fillStyle = st.up ? (o.type==='baron'?'#f3c34a':'#4aa8f3') : '#5d7590';
+    ctx.font = '700 10px "Microsoft YaHei",sans-serif'; ctx.textAlign='center';
+    ctx.fillText(o.name, q[0], q[1]+R+11);
+    if (!st.up && st.respawn>0){
+      ctx.fillStyle='#7d93a8'; ctx.font='600 9px system-ui';
+      ctx.fillText(st.respawn+'回合', q[0], q[1]-R-4);
+    }
+  });
+
+  // 敌方打野（最后出现位置）
+  if (G.enemyJungler && G.enemyJungler.zone!=='unknown'){
+    var e = G.enemyJungler, q = P(e.x,e.y);
+    var fresh = (G.turn - e.lastSeen) <= 3;
+    ctx.beginPath(); ctx.arc(q[0],q[1], 8*Math.min(sx,sy), 0, Math.PI*2);
+    ctx.fillStyle = fresh ? 'rgba(243,100,74,.85)' : 'rgba(243,100,74,.32)';
+    ctx.fill();
+    ctx.strokeStyle = '#f3644a'; ctx.lineWidth = 1.8; ctx.stroke();
+    ctx.fillStyle = fresh ? '#ffb4a3' : '#8a5a52';
+    ctx.font = '600 9.5px "Microsoft YaHei",sans-serif'; ctx.textAlign='center';
+    ctx.fillText(fresh ? '打野' : '打野?', q[0], q[1]-12*Math.min(sx,sy));
+  }
+
+  // 玩家
+  var hp = P(G.hero.x, G.hero.y);
+  ctx.beginPath(); ctx.arc(hp[0],hp[1], 10*Math.min(sx,sy), 0, Math.PI*2);
+  ctx.fillStyle = '#4aa8f3'; ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#dceaf7'; ctx.font = '700 10px "Microsoft YaHei",sans-serif'; ctx.textAlign='center';
+  ctx.fillText('你', hp[0], hp[1]-16*Math.min(sx,sy));
+
+  // 图例：路名
+  ctx.fillStyle = 'rgba(160,185,210,.75)'; ctx.font = '600 11px "Microsoft YaHei",sans-serif';
+  var tl = P(110,104); ctx.textAlign='left';  ctx.fillText('上路', tl[0]+12, tl[1]-6);
+  var ml = P(380,310); ctx.fillText('中路', ml[0]-6, ml[1]-16);
+  var bl = P(620,700); ctx.textAlign='right'; ctx.fillText('下路', bl[0]-14, bl[1]+18);
+
+  byId('mapTag').textContent = G.over ? '对局结束' : ('第 '+Math.min(G.turn,TOTAL_TURN)+' / '+TOTAL_TURN+' 回合 · '+timeStr());
+}
+
+function renderActions(){
+  var box = byId('actions');
+  var acts = buildActions();
+  box.innerHTML = '';
+  var idx = 1;
+  acts.forEach(function(a){
+    var s = scoreAction(a);
+    if (a.disabled){
+      var d = document.createElement('button');
+      d.className='act'; d.disabled=true; d.innerHTML = '<span class="key">·</span><span class="txt"><span class="name">'+esc(a.label)+'</span><span class="hint">'+esc(s.hint||'当前不可用')+'</span></span>';
+      box.appendChild(d);
+      return;
+    }
+    var b = document.createElement('button');
+    b.className = 'act';
+    var badges = (s.badges||[]).map(function(x){ return '<span class="badge '+x[0]+'">'+esc(x[1])+'</span>'; }).join('');
+    b.innerHTML = '<span class="key">'+idx+'</span>'
+      + '<span class="txt"><span class="name">'+esc(a.label)+badges+'</span>'
+      + '<span class="hint">'+esc(s.hint)+'</span></span>'
+      + '<span class="ev"><b>'+(s.ev>=0?'+':'')+Math.round(s.ev)+'</b><i>期望金</i></span>';
+    b.onclick = function(){ playerAct(a); };
+    box.appendChild(b);
+    idx++;
+  });
+  G._acts = acts.filter(function(x){ return !x.disabled; });
+}
+
+function renderFeedback(){
+  var box = byId('feedback');
+  var lo = G.lastOutcome;
+  if (!lo){ box.innerHTML = '<p class="mini" style="margin:0">选择一个动作开始你的第一回合。上方按钮右侧的数字是引擎算出的<b style="color:#f3c34a">期望收益</b>（按概率加权后的金币收益），先试着按它来判断。</p>'; return; }
+
+  var o = lo.out;
+  var cls = o.meter==='good' ? 'good' : o.meter==='bad' ? 'bad' : '';
+  var deltaCls = lo.delta >= 0 ? 'up' : 'down';
+  var h = '<div class="outcome">';
+  h += '<div class="verdict">'+esc(o.head)
+     + '<span class="delta '+deltaCls+'">'+(lo.delta>=0?'+':'')+lo.delta+' 金</span></div>';
+  h += '<div class="desc">'+esc(o.desc)+'</div>';
+
+  // 最优解对照
+  var ratio = lo.ideal>0 ? lo.delta/lo.ideal : 1;
+  if (lo.regret > 25){
+    h += '<div class="coach bad"><div class="ttl">⚠ 这回合不是最优解</div>'
+      +  '你选了 <b>'+esc(lo.action.label)+'</b>，拿到 '+lo.delta+' 金。'
+      +  '引擎认为更好的选择是 <b>'+esc(lo.best.action.label)+'</b>（期望 +'+lo.ideal+'）。'
+      +  '本回合的机会成本：<b>'+lo.regret+' 金</b>。'
+      + (lo.scored.bad ? '<br>原因：'+esc(lo.scored.bad) : '')
+      + '</div>';
+  } else {
+    h += '<div class="coach good"><div class="ttl">✓ 决策正确</div>'
+      +  '这是当前局势下期望最高的选择之一。'
+      + (lo.scored.good ? esc(lo.scored.good) : '保持这个判断节奏。')
+      + '</div>';
+  }
+  h += '</div>';
+  box.innerHTML = h;
+}
+
+function renderIntel(){
+  var h = '';
+  h += '<div class="row"><span class="lbl">场上时间</span><span class="val">'+timeStr()+'</span></div>';
+  h += '<div class="row"><span class="lbl">我方等级</span><span class="val">Lv.'+G.level+'</span></div>';
+  var hp2 = Math.round(G.health*100);
+  h += '<div class="row"><span class="lbl">当前状态</span><span class="val" style="color:'
+     + (hp2>70?'#8ef0bb':hp2>45?'#f3c34a':'#ff9d8a') + '">' + hp2 + '%'
+     + (hp2<=45 ? '（战力下降，考虑回城）' : '') + '</span></div>';
+  h += '<div class="row"><span class="lbl">已拿资源</span><span class="val">'+G.objCount+' 个 (obj)</span></div>';
+  h += '<div class="row"><span class="lbl">Gank 成功率</span><span class="val">'+(G.gankTry?Math.round(G.gankOk/G.gankTry*100):0)+'% ('+G.gankOk+'/'+G.gankTry+')</span></div>';
+
+  // 野区倒计时
+  h += '<div class="mini" style="margin-top:12px"><b style="color:#e8f0f7">己方野区刷新</b></div>';
+  var ours = CAMPS.filter(function(c){ return c.side==='our'; });
+  ours.forEach(function(c){
+    var s = G.camps[c.id], t = CAMP_TYPES[c.type];
+    var col = s.up ? '#f3c34a' : '#455a70';
+    h += '<div class="row camprow"><span class="lbl"><i class="pip" style="background:'+col+'"></i>'+t.name+'</span>'
+       + '<span class="val">'+(s.up?'<span style="color:#8ef0bb">已刷新</span>':s.cd+' 回合')+'</span></div>';
+  });
+
+  // 中立资源倒计时
+  h += '<div class="mini" style="margin-top:12px"><b style="color:#e8f0f7">中立资源</b></div>';
+  OBJS.forEach(function(o){
+    var s = G.objs[o.id];
+    var status;
+    if (s.up) status = '<span style="color:#f3c34a">已刷新</span>';
+    else {
+      var next = null;
+      G.objSchedule[o.id].forEach(function(ev){ if (!ev.done && (next===null || ev.at<next)) next = ev.at; });
+      status = next!==null ? ('第 '+next+' 回合 (~'+Math.round(next*15/60)+'分)') : '本局已结束';
+    }
+    h += '<div class="row"><span class="lbl">'+o.name+'</span><span class="val">'+status+'</span></div>';
+  });
+
+  // 三路线权
+  h += '<div class="mini" style="margin-top:12px"><b style="color:#e8f0f7">三路线权</b></div>';
+  LANES.forEach(function(L){
+    var s = laneScore(L);
+    var col = s>0.5?'#3ddc84':s<-0.5?'#f3644a':'#8b9db0';
+    h += '<div class="row"><span class="lbl">'+LANE_CN[L]+'</span><span class="val" style="color:'+col+'">'+laneNarrative(L)+'</span></div>';
+  });
+
+  // 敌方打野
+  var e = G.enemyJungler;
+  var fresh = (G.turn - e.lastSeen) <= 3;
+  h += '<div class="mini" style="margin-top:12px"><b style="color:#e8f0f7">敌方打野</b></div>';
+  h += '<div class="row"><span class="lbl">最后出现</span><span class="val">'
+     + (fresh ? '<span style="color:#ff9d8a">'+({spawn:'自家野区',lane:LANE_CN[e.lane],our:'我野区',river:'河道',dead:'读秒'})[e.zone]+'</span>'
+              : '<span style="color:#7d93a8">未知（'+ (G.turn-e.lastSeen) +' 回合前）</span>')
+     + '</span></div>';
+  h += '<p class="mini">看不到打野位置时，Gank 和打龙都要保守——这是本局最容易亏节奏的地方。</p>';
+
+  byId('intel').innerHTML = h;
+}
+
+function renderLog(){
+  var box = byId('log');
+  var h = '';
+  playHistory.slice(-40).forEach(function(p){
+    var cls = p.delta>0 ? 'good' : p.delta<0 ? 'bad' : '';
+    var mm = Math.floor(p.time/60), ss = p.time%60;
+    h += '<div class="logitem '+cls+'"><span class="t">'+mm+':'+(ss<10?'0':'')+ss+'</span>'
+       + '<span class="m">'+esc(p.pickedLabel)+' → <b>'+p.delta+'</b> 金'
+       + (p.regret>25 ? ' <span style="color:#ff9d8a">（最优：'+esc(p.bestLabel)+' +'+p.ideal+'）</span>' : '')
+       + '</span></div>';
+  });
+  box.innerHTML = h || '<p class="mini" style="margin:0">还没有记录。</p>';
+}
+
+function renderAll(){
+  renderHUD(); renderMap(); renderActions(); renderFeedback(); renderIntel(); renderLog();
+  byId('btnStart').textContent = G.over ? '再来一局' : (playHistory.length ? '重新开始' : '开始对局');
+  byId('turnTag').textContent = G.over ? '本局已结束' : '第 '+Math.min(G.turn,TOTAL_TURN)+' 回合';
+}
+
+/* ---------------------- 玩家操作 ---------------------- */
+function playerAct(a){
+  if (!G || G.over) return;
+  takeAction(a);
+  renderAll();
+  if (G.over) setTimeout(showReport, 420);
+}
+
+/* ---------------------- 赛后报告 ---------------------- */
+function gradeOf(acc, won){
+  if (acc>=92 && won) return {L:'S', t:'打野节奏大师'};
+  if (acc>=88) return {L:'A+', t:'节奏掌控得很好'};
+  if (acc>=80) return {L:'A',  t:'决策基本正确'};
+  if (acc>=70) return {L:'B',  t:'有一些明显的亏节奏决策'};
+  if (acc>=58) return {L:'C',  t:'经常在错误的时机做错误的事'};
+  if (acc>=45) return {L:'D',  t:'节奏被对面完全牵着走'};
+  return {L:'E', t:'这局基本在送节奏'};
+}
+
+function showReport(){
+  var acc = G.idealSum>0 ? clamp(G.actualSum/G.idealSum,0,1.6) : 0;
+  var accPct = Math.round(acc*100);
+  var lead = G.gold - G.enemyBase;
+  var score = G.gold + G.objGold*1.2;
+  var enemyScore = G.enemyBase;
+  var won = score >= enemyScore;
+  var gr = gradeOf(accPct, won);
+
+  // 找最亏的 5 个回合
+  var worst = playHistory.slice().filter(function(p){ return p.regret>0; })
+                 .sort(function(a,b){ return b.regret-a.regret; }).slice(0,5);
+
+  // 短板归因
+  var tips = [];
+  var m = G.metrics;
+  var badFarming = 0;
+  if ((m.overFarm||0) > 400) tips.push({t:'过度刷野', d:'你在野怪还在刷新时反复去刷，或者在明显该做事的时间点选择刷野，累计损失 <b>'+(m.overFarm||0)+' 金</b>。刷野是打野的保底，不是目标——每刷完一组都要问自己「现在最赚钱的事是什么」。'});
+  if ((m.badGank||0) > 400 || (m.badGankCount||0) >= 3) tips.push({t:'Gank 时机选择偏差', d:'有 <b>'+((m.badGankCount)||0)+'</b> 次 Gank 是负收益（路劣 / 无信息 / 被反蹲），累计成本 <b>'+((m.badGank||0))+' 金</b>。判断标准就一条：<b>这条路有没有线权 + 对面打野在不在附近</b>。两个都不满足，就别去。'});
+  if ((m.badInvade||0) > 350 || (m.badInvadeCount||0) >= 2) tips.push({t:'无信息入侵', d:'你有 <b>'+((m.badInvadeCount)||0)+'</b> 次入侵被抓，损失 <b>'+((m.badInvade||0))+' 金</b>。入侵的前提永远是「确认对面打野在别处」——没这个信息，反野就是赌命。'});
+  if ((m.obj||0) === 0 && G.turn > 40) tips.push({t:'完全放弃团队资源', d:'整局一个龙都没拿。中立资源是打野最重要的团队贡献，<b>每 4 回合刷一次</b>，看到倒计时就该提前规划兵线和位置。'});
+  if ((m.badRecall||0) > 300) tips.push({t:'回城次数过多', d:'满状态回城等于把节奏白送。回城只在血线低或刚打完团之后做。'});
+  if (G.deaths >= 5) tips.push({t:'阵亡偏多', d:'本局阵亡 <b>'+G.deaths+'</b> 次。打野死一次，等于对面白拿一组 BUFF + 一轮游走时间。'});
+
+  // 做得好的地方
+  var goods = [];
+  if (accPct>=82) goods.push('整体决策质量很高（'+accPct+'%），你已经在按「期望收益」而不是「直觉」做选择了。');
+  if ((m.obj||0) >= 2) goods.push('中立资源控制不错，拿了 <b>'+G.objCount+'</b> 个 obj，这是打野的核心价值。');
+  if (G.gankTry>=4 && G.gankOk/G.gankTry >= 0.6) goods.push('Gank 成功率 <b>'+Math.round(G.gankOk/G.gankTry*100)+'%</b>，进场时机把握得好。');
+  if (G.deaths <= 2) goods.push('整局只有 <b>'+G.deaths+'</b> 次阵亡，说明你没有盲目入侵和硬抓。');
+
+  // 归类统计：按动作类型归类（p.picked 形如 "GANK 上路" / "OBJ 小暴君" / "FARM"）。
+  // 早先这里用 pickedLabel.split(' ')[0] 归类，对"蹲草守护 上路"这类无空格标签会拆错，
+  // 导致报告里永远看不到「蹲草」这一类，现在统一改用类型字段。
+  var kindStat = {};
+  playHistory.forEach(function(p){
+    var k = (p.picked || '其他').split(' ')[0];
+    if (!kindStat[k]) kindStat[k] = {n:0, gold:0, regret:0};
+    kindStat[k].n++; kindStat[k].gold += p.delta; kindStat[k].regret += p.regret;
+  });
+  var kindOrder = Object.keys(kindStat).sort(function(a,b){ return kindStat[b].n - kindStat[a].n; });
+  var maxN = 1;
+  kindOrder.forEach(function(k){ if (kindStat[k].n > maxN) maxN = kindStat[k].n; });
+
+  var h = '';
+  h += '<div class="head"><h3>'+(won?'🏆 胜利':'💀 失败')+' · '+gr.t+'</h3>'
+     + '<div class="sub">15 分钟对局复盘 · 你的经济 '+G.gold+' / 敌方 '+G.enemyBase+' · 经济差 '+(lead>=0?'+':'')+lead+'</div></div>';
+  h += '<div class="content">';
+
+  h += '<div class="rgrade"><div class="letter'+(accPct<60?' bad':'')+'">'+gr.L+'</div>'
+     + '<div class="meta">决策质量评分：<b>'+accPct+'%</b>（你的收益 / 每回合最优解收益之和）<br>'
+     + '累计机会成本：<b>'+G.regretSum+' 金</b> —— 这是"完全正确决策"能多拿的钱<br>'
+     + '最终比分：<b>'+Math.round(score)+'</b> vs 敌方 <b>'+enemyScore+'</b>（经济 + obj×1.2）</div></div>';
+
+  h += '<div class="rgrid">';
+  h += rc('总经济', G.gold);
+  h += rc('K / D / A', G.kills+'/'+G.deaths+'/'+G.assists);
+  h += rc('Gank 成功率', (G.gankTry?Math.round(G.gankOk/G.gankTry*100):0)+'%');
+  h += rc('中立资源', G.objCount+' 个');
+  h += rc('阵亡', G.deaths+' 次');
+  h += rc('平均每回合', Math.round(G.actualSum/Math.max(1,playHistory.length))+' 金');
+  h += '</div>';
+
+  // 行为分布
+  h += '<h4>你的决策分布</h4><div class="bars">';
+  kindOrder.forEach(function(k){
+    var s = kindStat[k];
+    var pct = Math.round(s.n/playHistory.length*100);
+    var col = s.regret > s.gold*0.4 ? '#f3644a' : '#3ddc84';
+    h += '<div class="bar"><span class="bl">'+esc(k)+'</span>'
+       + '<span class="bt"><i style="width:'+(s.n/maxN*100)+'%;background:'+col+'"></i></span>'
+       + '<span class="bn">'+s.n+' 次</span></div>';
+  });
+  h += '</div>';
+
+  // 改进建议
+  if (tips.length){
+    h += '<h4>最该改的 '+tips.length+' 个问题</h4><div class="tips">';
+    tips.forEach(function(t,i){
+      h += '<div class="tip"><b>'+(i+1)+'. '+esc(t.t)+'</b><div style="margin-top:4px">'+t.d+'</div></div>';
+    });
+    h += '</div>';
+  } else {
+    h += '<h4>评价</h4><div class="tips"><div class="tip"><b>没有发现明显的系统性错误。</b>这局你的决策质量在 '+accPct+'%，继续保持。想进一步提升的话，试试把准确率推到 90% 以上——那意味着你几乎每一回合都拿到了最大期望收益。</div></div>';
+  }
+
+  if (goods.length){
+    h += '<h4>做得好的地方</h4><div class="tips">';
+    goods.forEach(function(t){ h += '<div class="tip">'+t+'</div>'; });
+    h += '</div>';
+  }
+
+  // 最亏的回合
+  if (worst.length){
+    h += '<h4>最亏的 '+worst.length+' 个决策</h4><div class="timeline">';
+    worst.forEach(function(p){
+      var mm = Math.floor(p.time/60), ss = p.time%60;
+      h += '<div class="tl bad"><span class="tt">'+mm+':'+(ss<10?'0':'')+ss+'</span>'
+         + '<span class="cc">你选了 <em>'+esc(p.pickedLabel)+'</em>（'+p.delta+' 金），'
+         + '更好的选择是 <s>'+esc(p.bestLabel)+'</s>（期望 +'+p.ideal+'），差 <b>'+p.regret+'</b> 金</span></div>';
+    });
+    h += '</div>';
+  }
+
+  h += '</div>';
+  h += '<div class="foot"><button class="btn primary" id="btnAgain">再来一局</button>'
+     + '<button class="btn" id="btnClose">关闭复盘</button></div>';
+
+  byId('report').innerHTML = h;
+  byId('mask').classList.add('on');
+  byId('btnAgain').onclick = function(){ byId('mask').classList.remove('on'); startGame(); };
+  byId('btnClose').onclick = function(){ byId('mask').classList.remove('on'); };
+}
+function rc(k,v){ return '<div class="c"><div class="k">'+k+'</div><div class="v">'+v+'</div></div>'; }
+
+/* ---------------------- 帮助 ---------------------- */
+function showHelp(){
+  byId('report').innerHTML =
+    '<div class="head"><h3>玩法说明 · 打野决策训练场</h3>'
+   + '<div class="sub">把一局 15 分钟的比赛压缩成 60 个决策回合</div></div>'
+   + '<div class="content help">'
+   + '<p>每回合代表游戏里的 <b>15 秒</b>。你从 5～7 个动作里选一个，引擎立刻结算结果，并告诉你<b>这一回合的最优解是什么</b>。</p>'
+   + '<h4>动作含义</h4><ol>'
+   + '<li><b>刷野</b> — 吃己方已刷新的野怪。保底收益，但机会成本可能很高。</li>'
+   + '<li><b>Gank 上/中/下</b> — 成功率取决于：该路<b>线权</b>、双方战力差、你之前抓这条路的次数。连续抓同一条路会被警觉反蹲。</li>'
+   + '<li><b>入侵敌方野区</b> — 收益高、风险高。关键在于<b>是否知道对面打野的位置</b>。</li>'
+   + '<li><b>拿小/大暴君</b> — 团队资源，额外计入 obj 评分。前提是线权 + 对面打野不在附近。</li>'
+   + '<li><b>蹲草守护</b> — 防对面 Gank，救下队友能拿助攻和线权。</li>'
+   + '<li><b>回城补给</b> — 恢复战力，但浪费时间。</li></ol>'
+   + '<h4>怎么看懂数字</h4>'
+   + '<p>每个按钮右边的 <b>+128</b> 这类数字是引擎算出的<b>期望收益</b>（按成功概率加权后的金币）。它已经包含了成功率、风险、反蹲概率。'
+   + '你的目标不是每次挑最大的数字，而是理解<b>为什么</b>这个数字大——比如为什么「Gank 上路」只有 +40，而「刷红BUFF」有 +150。</p>'
+   + '<h4>评分</h4>'
+   + '<p>局末的<b>决策质量 %</b> = 你的实际累计收益 ÷ 每回合最优解收益之和。90% 以上说明你几乎每回合都做出了最优决策。'
+   + '<b>机会成本</b>是这个差距换算成金币的值。</p>'
+   + '<h4>快捷键</h4><p>数字键 <b>1～7</b> 可以直接选择对应动作。</p>'
+   + '<h4>建议的练习方式</h4><ol>'
+   + '<li>第一局先别看期望值，凭直觉打，记录自己的决策习惯。</li>'
+   + '<li>第二局开始，每回合先自己想「最优是什么」，再看引擎的期望值对照。</li>'
+   + '<li>连续 5 局把决策质量稳定在 85% 以上，再回去打排位。</li></ol>'
+   + '</div><div class="foot"><button class="btn primary" id="btnClose2">知道了</button></div>';
+  byId('mask').classList.add('on');
+  byId('btnClose2').onclick = function(){ byId('mask').classList.remove('on'); };
+}
+
+/* ---------------------- 启动 ---------------------- */
+function startGame(){
+  G = newGame();
+  playHistory = [];
+  renderAll();
+}
+
+byId('btnStart').onclick = function(){
+  if (!G || G.over){ startGame(); } else { startGame(); }
+};
+byId('btnHelp').onclick = showHelp;
+
+document.addEventListener('keydown', function(e){
+  if (byId('mask').classList.contains('on')) {
+    if (e.key==='Escape') byId('mask').classList.remove('on');
+    return;
+  }
+  if (!G || G.over) return;
+  var n = parseInt(e.key, 10);
+  if (n>=1 && n<=9 && G._acts && G._acts[n-1]) playerAct(G._acts[n-1]);
+});
+
+// 初始化一个空状态用于展示
+G = newGame();
+playHistory = [];
+renderAll();
+byId('feedback').innerHTML = '<p class="mini" style="margin:0">点击右上角 <b style="color:#f3c34a">开始对局</b> 进入第一回合。建议先看一遍「玩法说明」。</p>';
+
+/* ---------------------- 开发者测试钩子 ----------------------
+   暴露引擎内部函数，供 tools/sim.mjs 做无头数值平衡校验，
+   也方便在浏览器控制台里调试。__DEV__ 由 Node 模拟器注入，
+   浏览器里默认也是开启的（不影响正常游戏）。
+   ------------------------------------------------------------ */
+if (typeof __DEV__ === 'undefined' || __DEV__) {
+  var devApi = {
+    newGame: function () { return newGame(); },
+    setGame: function (g) { G = g; playHistory = []; },
+    getGame: function () { return G; },
+    buildScored: function () {
+      return buildActions()
+        .filter(function (x) { return !x.disabled; })
+        .map(function (x) { var s = scoreAction(x); s.action = x; return s; });
+    },
+    applyChoice: function (scored, all) {
+      takeAction(scored.action);
+      if (all && all.length) {
+        // 校对：takeAction 内部算出的最优解应与外部独立重算的结果一致。
+        // 内部存的是取整后的期望值，这里按同样方式取整再比。
+        var best = all.reduce(function (m, x) { return x.ev > m.ev ? x : m; }, all[0]);
+        var expect = Math.max(0, Math.round(best.ev));
+        if (!G.lastOutcome || G.lastOutcome.ideal !== expect) {
+          throw new Error('最优解不一致: ' + expect + ' vs ' + (G.lastOutcome && G.lastOutcome.ideal));
+        }
+      }
+      return G.lastOutcome;
+    },
+    stats: function () {
+      // acc / accRaw 的区别：
+      //   accRaw = 实际累计收益 / 每回合最优解期望之和，可能因随机性略高于 1
+      //   acc    = 展示用，封顶 100%
+      var accRaw = G.idealSum > 0 ? G.actualSum / G.idealSum : 0;
+      var score = G.gold + G.objGold * 1.2;
+      var kindCount = {};
+      playHistory.forEach(function (p) {
+        // 统一用动作类型（FARM/GANK/...）作为 key。
+        // p.picked 形如 "GANK 上路"、"FARM"、"OBJ 小暴君"，取首词即类型。
+        var k = (p.picked || 'OTHER').split(' ')[0];
+        kindCount[k] = (kindCount[k] || 0) + 1;
+      });
+      return {
+        won: score >= G.enemyBase ? 1 : 0,
+        acc: Math.min(1, accRaw), accRaw: accRaw,
+        gold: G.gold, enemyBase: G.enemyBase,
+        regret: G.regretSum, objCount: G.objCount,
+        gankOk: G.gankOk, gankTry: G.gankTry, kills: G.kills, deaths: G.deaths,
+        kindCount: kindCount,
+        idealSum: G.idealSum, actualSum: G.actualSum, turns: playHistory.length
+      };
+    }
+  };
+  try { window.__TEST__ = devApi; } catch (e) { /* ignore */ }
+}
+
+})();
+</script>
+</body>
+</html>
