@@ -218,21 +218,45 @@ if (pages.status === 200 || pages.status === 201 || pages.status === 204) {
   }
 }
 
-/* ---------- 步骤 5：等待并验证线上可访问 ---------- */
+/* ---------- 步骤 5：等待并验证线上跑的是本次构建 ---------- */
 const URL = `https://${OWNER}.github.io/${REPO}/`;
 console.log('[5/5] 等待 Pages 构建并验证:', URL);
 
+/*
+ * 验证的关键是比对「构建标记」，而不是「页面能打开」。
+ * GitHub Pages 走 CDN，更新后旧版本还会被缓存一段时间；
+ * 如果只检查 title 之类的通用字样，新旧版本都能通过，验证等于没做。
+ * 所以从本地 index.html 读出 <meta name="build">，要求线上与之完全一致。
+ */
+const localHtml = readFileSync(join(ROOT, 'index.html'), 'utf8');
+const buildMatch = localHtml.match(/<meta\s+name="build"\s+content="([^"]+)"/);
+const BUILD = buildMatch ? buildMatch[1] : null;
+if (!BUILD) {
+  console.log('      ⚠ 本地 index.html 没有 <meta name="build">，只能做通用检查');
+} else {
+  console.log('      本次构建标记:', BUILD);
+}
+
 let live = false;
-for (let i = 1; i <= 30; i++) {
-  await sleep(5000);
-  const r = await httpGet(URL);
-  const good = r.status === 200 && r.body.includes('打野教练');
-  if (good) {
-    live = true;
-    console.log(`      第 ${i} 次检查: 200 OK，页面内容已生效 ✓`);
-    break;
+let sawOldVersion = false;
+for (let i = 1; i <= 40; i++) {
+  // 带随机 query 绕过 CDN 缓存，否则可能一直拿到旧版本
+  const r = await httpGet(URL + '?cachebust=' + Date.now());
+  if (r.status === 200) {
+    if (!BUILD) {
+      if (r.body.includes('打野教练')) { live = true; console.log(`      第 ${i} 次检查: 200 OK ✓`); break; }
+    } else if (r.body.includes(`content="${BUILD}"`)) {
+      live = true;
+      console.log(`      第 ${i} 次检查: 200 OK，构建标记匹配 ✓`);
+      break;
+    } else {
+      sawOldVersion = true;
+      console.log(`      第 ${i} 次检查: 200 但仍是旧版本（CDN 缓存中），继续等待…`);
+    }
+  } else {
+    console.log(`      第 ${i} 次检查: HTTP ${r.status}，继续等待…`);
   }
-  console.log(`      第 ${i} 次检查: HTTP ${r.status}，继续等待…`);
+  await sleep(5000);
 }
 
 console.log('\n' + '─'.repeat(60));
@@ -240,8 +264,13 @@ console.log('仓库地址 :', `https://github.com/${OWNER}/${REPO}`);
 console.log('线上地址 :', URL);
 console.log('─'.repeat(60));
 if (!live) {
-  console.log('页面可能仍在构建中（首次部署通常 1-2 分钟）。稍后刷新上面的线上地址即可。');
+  if (sawOldVersion) {
+    console.log('线上仍在跑旧版本（Pages CDN 缓存），通常 1-2 分钟内会刷新。');
+    console.log('若长时间不变，可在浏览器请求里加 ?v=' + Date.now() + ' 强制绕过缓存。');
+  } else {
+    console.log('页面可能仍在构建中（首次部署通常 1-2 分钟）。稍后刷新上面的线上地址即可。');
+  }
   process.exitCode = 2;
 } else {
-  console.log('发布完成 ✓');
+  console.log('发布完成 ✓ 线上已确认是本次构建的版本');
 }
