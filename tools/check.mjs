@@ -48,13 +48,17 @@ ok('byId 引用的 id 全部有对应元素', dead.length === 0, dead.join(', ')
 ok('没有残留的调试打印', !/console\.log\(/.test(script));
 ok('中立资源为暴君 + 主宰', src.includes("name:'暴君'") && src.includes("name:'主宰'"));
 // 期望金必须从 UI 彻底移除：既不能有相关标记，也不能留下废弃的 CSS 规则。
-// 注意不要直接搜「期望金」三个字 —— 注释里提到它属于正常情况，
-// 所以先把注释剥掉再检查，避免误报。
+// 注意要先把注释剥掉再搜「期望金」——注释里提到它是正常的；
+// 而且 HTML 注释也必须剥，否则部署标记之类的文字会造成误报。
 const srcNoComment = src
+  .replace(/<!--[\s\S]*?-->/g, '')
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .replace(/\/\/[^\n]*/g, '');
 ok('按钮上不再显示期望金',
   !/<span class="ev"/.test(src) && !/\.act\s+\.ev\b/.test(src) && !/期望金/.test(srcNoComment));
+// 部署版本标记必须存在，否则发布脚本无法确认线上跑的版本
+ok('存在部署版本标记 <meta name="build">',
+  /<meta\s+name="build"\s+content="[^"]+"/.test(src));
 
 for (const f of ['README.md', 'LICENSE', '.gitignore']) {
   let exist = true;
